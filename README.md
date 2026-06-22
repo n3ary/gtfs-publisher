@@ -1,12 +1,12 @@
 # neary-gtfs
 
-GTFS static feed generator for transit agencies. Parses official PDF/HTML schedules and builds standards-compliant GTFS ZIPs, published as GitHub Releases.
+GTFS static feed generator for transit agencies. Scrapes official schedule sources (CSV, PDF, or HTML — depending on the agency), builds standards-compliant GTFS ZIPs, and publishes them as GitHub Releases.
 
 **Consumer**: [neary](https://github.com/ciotlosm/neary) — the Netlify schedule pipeline fetches the ZIP URL from this repo's releases.
 
 ## Why
 
-The third-party GTFS feed at `external.gtfs.ro` for CTP Cluj is stale (last updated Nov 2025). CTP publishes new schedules on their website but doesn't maintain an up-to-date GTFS feed. This repo fills the gap by scraping the official PDFs and generating a compatible GTFS ZIP.
+Third-party GTFS feeds (like `external.gtfs.ro`) can go stale for months while operators publish updated schedules on their websites. This repo fills the gap by scraping directly from the official source and generating a compatible GTFS ZIP daily.
 
 ## Architecture
 
@@ -34,11 +34,21 @@ neary-gtfs/
 ## How it works
 
 1. **Daily cron** (00:00 UTC) triggers the GitHub Action for each agency
-2. **Fetch**: download PDFs for all routes in the agency's `routes.json`
-3. **Parse**: extract departure times, directions, service days from PDFs
+2. **Fetch**: download schedule data from the official source (CTP Cluj uses CSV files)
+3. **Parse**: extract departure times, directions, service days
 4. **Generate**: produce GTFS files using the route/stop registry for IDs and coordinates
-5. **Compare**: hash the generated content against the latest release
-6. **Publish**: if changed, create a new GitHub Release with the ZIP asset
+5. **Compare**: compute content hash and compare against the latest GitHub Release
+6. **Publish**: if changed, create a new release with the ZIP; if unchanged, exit 0 (no spam)
+
+### Change detection (no-spam publishing)
+
+The pipeline computes a SHA-256 hash of the generated GTFS content (normalized, sorted). This hash is stored in the body of each GitHub Release. On subsequent runs:
+- Download the latest release metadata (tag + body)
+- Extract the previous hash
+- If hashes match → no changes → skip publish (exit 0)
+- If hashes differ → publish a new release with the updated ZIP + new hash
+
+No local state, no extra commits — the release itself is the single source of truth.
 
 ## GTFS format compatibility
 

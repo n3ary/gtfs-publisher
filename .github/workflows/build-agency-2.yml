@@ -27,24 +27,49 @@ jobs:
       - name: Build GTFS for agency 2
         run: node src/build.js --agency 2
 
-      - name: Check for changes
+      - name: Compare hash with latest release
         id: check
         run: |
-          if [ -f output/agency-2/CHANGED ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Schedule data has changed — will publish new release"
-          else
+          # Read the hash we just generated
+          NEW_HASH=$(cat output/agency-2/HASH)
+          echo "New hash: $NEW_HASH"
+
+          # Get the latest release body for this agency (contains the previous hash)
+          PREV_HASH=$(gh release list --limit 1 --json tagName,body \
+            --jq '.[] | select(.tagName | startswith("agency-2-")) | .body' 2>/dev/null \
+            | grep -oP 'hash: \K[a-f0-9]{64}' || echo "")
+
+          echo "Previous hash: ${PREV_HASH:-none}"
+
+          if [ "$NEW_HASH" = "$PREV_HASH" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No schedule changes detected — skipping release"
+            echo "No schedule changes — skipping release"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Schedule changed — publishing new release"
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release
         if: steps.check.outputs.changed == 'true'
         run: |
-          TAG="v$(date -u +%Y-%m-%d)-agency-2"
+          TAG="agency-2-$(date -u +%Y%m%d)"
+          HASH=$(cat output/agency-2/HASH)
+          DATE=$(date -u +%Y-%m-%d)
+
+          # Delete existing tag for today if re-running (idempotent)
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
           gh release create "$TAG" \
             output/agency-2/CLUJ.zip \
-            --title "CTP Cluj GTFS - $(date -u +%Y-%m-%d)" \
-            --notes "$(cat output/agency-2/CHANGES.md 2>/dev/null || echo 'Daily schedule update')"
+            --title "CTP Cluj GTFS — $DATE" \
+            --notes "Daily GTFS build for CTP Cluj-Napoca (agency 2).
+
+          hash: $HASH
+          generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          trips: $(grep -c '' output/agency-2/trips.txt)
+          stop_times: $(grep -c '' output/agency-2/stop_times.txt)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
