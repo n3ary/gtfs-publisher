@@ -1,0 +1,9 @@
+{
+  "_comment": "Maps stop names (as they appear in CTP PDFs) to Tranzy stop_id + coordinates. Source: Tranzy /stops API for agency_id=2. Update when CTP adds/renames stops.",
+  "stops": [
+    { "name": "P-ta M. Viteazul", "stopId": 208, "lat": 46.77415, "lon": 23.59032 },
+    { "name": "Pod Traian", "stopId": 18, "lat": 46.77218, "lon": 23.59578 },
+    { "name": "Biserica Câmpului", "stopId": 351, "lat": 46.76218, "lon": 23.61842 }
+  ],
+  "_todo": "Complete list from Tranzy /stops endpoint (all ~913 stops for agency 2). Only a few are seeded here as examples."
+}

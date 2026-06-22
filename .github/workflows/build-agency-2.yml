@@ -1,0 +1,50 @@
+name: "Build GTFS: CTP Cluj (agency 2)"
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at 00:00 UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed for creating releases
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build GTFS for agency 2
+        run: node src/build.js --agency 2
+
+      - name: Check for changes
+        id: check
+        run: |
+          if [ -f output/agency-2/CHANGED ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Schedule data has changed — will publish new release"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No schedule changes detected — skipping release"
+          fi
+
+      - name: Publish release
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          TAG="v$(date -u +%Y-%m-%d)-agency-2"
+          gh release create "$TAG" \
+            output/agency-2/CLUJ.zip \
+            --title "CTP Cluj GTFS - $(date -u +%Y-%m-%d)" \
+            --notes "$(cat output/agency-2/CHANGES.md 2>/dev/null || echo 'Daily schedule update')"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,17 @@
+{
+  "agencyId": 2,
+  "name": "CTP Cluj-Napoca",
+  "url": "https://www.ctpcj.ro",
+  "timezone": "Europe/Bucharest",
+  "lang": "ro",
+  "schedulePage": "https://www.ctpcj.ro/index.php/ro/orare-linii/linii-urbane",
+  "pdfUrlPattern": "https://www.ctpcj.ro/orare/pdf/orar_{routeShortName}.pdf",
+  "serviceIds": {
+    "weekday": "LV",
+    "saturday": "S",
+    "sunday": "D",
+    "daily": "LD"
+  },
+  "tripIdFormat": "{routeId}_{directionId}_{serviceId}_{sequence}_{HHMM}",
+  "notes": "PDF schedules are the authoritative source. external.gtfs.ro is stale (Nov 2025). This pipeline replaces it."
+}

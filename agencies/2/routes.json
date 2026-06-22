@@ -1,0 +1,10 @@
+{
+  "_comment": "Maps CTP route short names to Tranzy route_id. Source: Tranzy /routes API for agency_id=2. Update when CTP adds/removes lines.",
+  "routes": [
+    { "shortName": "1", "routeId": 1, "longName": "Str. Bucium - P-ta 1 Mai", "type": 11 },
+    { "shortName": "42", "routeId": 40, "longName": "P-ta M. Viteazul - Str. Câmpului", "type": 3 },
+    { "shortName": "19", "routeId": 6, "longName": "P-ta M. Viteazul - Str. E. Quinet", "type": 3 },
+    { "shortName": "24", "routeId": 12, "longName": "Str. Unirii - Str. Bucium", "type": 3 }
+  ],
+  "_todo": "Complete list from Tranzy /routes endpoint (all ~100+ routes for agency 2). Only a few are seeded here as examples."
+}

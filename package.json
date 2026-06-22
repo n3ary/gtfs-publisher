@@ -1,0 +1,23 @@
+{
+  "name": "neary-gtfs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GTFS static feed generator for transit agencies (CTP Cluj + extensible)",
+  "scripts": {
+    "build": "node src/build.js",
+    "build:agency": "node src/build.js --agency",
+    "test": "vitest --run",
+    "lint": "eslint src/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1",
+    "archiver": "^7.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.0"
+  }
+}
