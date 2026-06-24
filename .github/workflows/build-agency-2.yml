@@ -25,7 +25,20 @@ jobs:
         run: npm ci
 
       - name: Sync Tranzy static data (all agencies)
-        run: node src/sync-tranzy.js
+        id: sync
+        run: |
+          # Fetch previous hashes from releases branch (if available)
+          mkdir -p data
+          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/releases/data/hashes.json" \
+            -o data/hashes.json 2>/dev/null || echo "{}" > data/hashes.json
+
+          node src/sync-tranzy.js
+
+          if [ -f "data/CHANGED" ]; then
+            echo "static_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "static_changed=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY }}
 
@@ -91,6 +104,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to releases branch
+        if: steps.sync.outputs.static_changed == 'true' || steps.check.outputs.changed == 'true'
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

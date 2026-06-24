@@ -12,8 +12,10 @@
  * What it does:
  *   1. Fetches /agency to discover all agencies
  *   2. For each agency: fetches /routes, /stops, /trips, /stop_times, /shapes
- *   3. Stores raw JSON responses in data/<agency_id>/<endpoint>.json
- *   4. Also writes the transformed registry files that build.js expects
+ *   3. Hashes each response — only writes to disk if content changed
+ *   4. Stores raw JSON responses in data/<agency_id>/<endpoint>.json
+ *   5. Writes a hash manifest (data/hashes.json) for change detection
+ *   6. Updates the transformed registry files that build.js expects
  *      (agencies/<id>/routes.json, stops.json, trips.json, stop_times.json)
  *
  * The raw files in data/ are the source of truth for the neary app's static
@@ -21,9 +23,10 @@
  * are the intermediate format consumed by the offline schedule builder.
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -38,6 +41,25 @@ const BASE_URL = 'https://api.tranzy.ai/v1/opendata';
 const LOG = (msg) => console.log(`[sync-tranzy] ${msg}`);
 
 // ============================================================================
+// Hashing
+// ============================================================================
+
+function hashContent(data) {
+  const json = JSON.stringify(data);
+  return createHash('sha256').update(json).digest('hex');
+}
+
+function loadPreviousHashes() {
+  const hashFile = join(ROOT, 'data', 'hashes.json');
+  if (!existsSync(hashFile)) return {};
+  try {
+    return JSON.parse(readFileSync(hashFile, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+// ============================================================================
 // Fetching
 // ============================================================================
 
@@ -48,7 +70,7 @@ async function fetchJson(endpoint, agencyId = null) {
 
   const res = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(60000), // 60s timeout (shapes is large)
+    signal: AbortSignal.timeout(60000),
   });
 
   if (!res.ok) {
@@ -79,7 +101,6 @@ function writeRegistry(agencyId, rawRoutes, rawStops, rawTrips, rawStopTimes) {
   const outDir = join(ROOT, 'agencies', String(agencyId));
   mkdirSync(outDir, { recursive: true });
 
-  // routes.json
   const routes = {
     _comment: `Auto-generated from Tranzy /routes API for agency_id=${agencyId}`,
     _generated: new Date().toISOString(),
@@ -94,7 +115,6 @@ function writeRegistry(agencyId, rawRoutes, rawStops, rawTrips, rawStopTimes) {
   };
   writeJsonPretty(join(outDir, 'routes.json'), routes);
 
-  // stops.json
   const stops = {
     _comment: `Auto-generated from Tranzy /stops API for agency_id=${agencyId}`,
     _generated: new Date().toISOString(),
@@ -109,7 +129,6 @@ function writeRegistry(agencyId, rawRoutes, rawStops, rawTrips, rawStopTimes) {
   };
   writeJsonPretty(join(outDir, 'stops.json'), stops);
 
-  // trips.json
   const trips = {
     _comment: `Auto-generated from Tranzy /trips API for agency_id=${agencyId}`,
     _generated: new Date().toISOString(),
@@ -126,7 +145,6 @@ function writeRegistry(agencyId, rawRoutes, rawStops, rawTrips, rawStopTimes) {
   };
   writeJsonPretty(join(outDir, 'trips.json'), trips);
 
-  // stop_times.json (grouped by trip_id)
   const byTrip = {};
   for (const st of rawStopTimes) {
     if (!byTrip[st.trip_id]) byTrip[st.trip_id] = [];
@@ -150,62 +168,101 @@ function writeRegistry(agencyId, rawRoutes, rawStops, rawTrips, rawStopTimes) {
 // ============================================================================
 
 async function main() {
+  const previousHashes = loadPreviousHashes();
+  const newHashes = {};
+  let changedCount = 0;
+  let unchangedCount = 0;
+
   LOG('Fetching agency list...');
   const agencies = await fetchJson('agency');
   LOG(`Found ${agencies.length} agencies`);
 
-  // Store raw agency list
+  // Check + store agency list
   const dataDir = join(ROOT, 'data');
-  writeJson(join(dataDir, 'agency.json'), agencies);
-  LOG(`Saved data/agency.json`);
+  const agencyHash = hashContent(agencies);
+  newHashes['agency'] = agencyHash;
+  if (agencyHash !== previousHashes['agency']) {
+    writeJson(join(dataDir, 'agency.json'), agencies);
+    LOG(`✓ data/agency.json (changed)`);
+    changedCount++;
+  } else {
+    LOG(`– data/agency.json (unchanged)`);
+    unchangedCount++;
+  }
 
   // Process each agency
+  const ENDPOINTS = ['routes', 'stops', 'trips', 'stop_times', 'shapes'];
+
   for (const agency of agencies) {
     const id = agency.agency_id;
     const name = agency.agency_name;
     const agencyDataDir = join(dataDir, String(id));
-    mkdirSync(agencyDataDir, { recursive: true });
 
     LOG(`\n── Agency ${id}: ${name} ──`);
 
+    const fetched = {};
+    let agencyChanged = false;
+
     try {
-      // Fetch all static endpoints
-      LOG(`  Fetching routes...`);
-      const routes = await fetchJson('routes', id);
-      writeJson(join(agencyDataDir, 'routes.json'), routes);
-      LOG(`  ✓ routes: ${routes.length}`);
+      for (const endpoint of ENDPOINTS) {
+        LOG(`  Fetching ${endpoint}...`);
+        const data = await fetchJson(endpoint, id);
+        fetched[endpoint] = data;
 
-      LOG(`  Fetching stops...`);
-      const stops = await fetchJson('stops', id);
-      writeJson(join(agencyDataDir, 'stops.json'), stops);
-      LOG(`  ✓ stops: ${stops.length}`);
+        const hashKey = `${id}/${endpoint}`;
+        const hash = hashContent(data);
+        newHashes[hashKey] = hash;
 
-      LOG(`  Fetching trips...`);
-      const trips = await fetchJson('trips', id);
-      writeJson(join(agencyDataDir, 'trips.json'), trips);
-      LOG(`  ✓ trips: ${trips.length}`);
+        if (hash !== previousHashes[hashKey]) {
+          mkdirSync(agencyDataDir, { recursive: true });
+          writeJson(join(agencyDataDir, `${endpoint}.json`), data);
+          LOG(`  ✓ ${endpoint}: ${Array.isArray(data) ? data.length : '?'} (changed)`);
+          changedCount++;
+          agencyChanged = true;
+        } else {
+          LOG(`  – ${endpoint}: ${Array.isArray(data) ? data.length : '?'} (unchanged)`);
+          unchangedCount++;
+        }
+      }
 
-      LOG(`  Fetching stop_times...`);
-      const stopTimes = await fetchJson('stop_times', id);
-      writeJson(join(agencyDataDir, 'stop_times.json'), stopTimes);
-      LOG(`  ✓ stop_times: ${stopTimes.length}`);
-
-      LOG(`  Fetching shapes...`);
-      const shapes = await fetchJson('shapes', id);
-      writeJson(join(agencyDataDir, 'shapes.json'), shapes);
-      LOG(`  ✓ shapes: ${shapes.length} points`);
-
-      // Write registry files (for build.js compatibility)
-      const stats = writeRegistry(id, routes, stops, trips, stopTimes);
-      LOG(`  ✓ registry: ${stats.routes} routes, ${stats.stops} stops, ${stats.trips} trips`);
+      // Update registry files only if any data changed for this agency
+      if (agencyChanged) {
+        const stats = writeRegistry(
+          id,
+          fetched.routes,
+          fetched.stops,
+          fetched.trips,
+          fetched.stop_times,
+        );
+        LOG(`  ✓ registry updated: ${stats.routes} routes, ${stats.stops} stops, ${stats.trips} trips`);
+      }
 
     } catch (err) {
       LOG(`  ✗ ERROR: ${err.message}`);
-      // Continue with other agencies
+      // Preserve previous hashes for failed agencies
+      for (const endpoint of ENDPOINTS) {
+        const hashKey = `${id}/${endpoint}`;
+        if (previousHashes[hashKey]) {
+          newHashes[hashKey] = previousHashes[hashKey];
+        }
+      }
     }
   }
 
-  LOG('\nSync complete.');
+  // Write hash manifest
+  mkdirSync(dataDir, { recursive: true });
+  writeJsonPretty(join(dataDir, 'hashes.json'), newHashes);
+
+  LOG(`\nSync complete: ${changedCount} changed, ${unchangedCount} unchanged.`);
+
+  // Set output for CI: did anything change?
+  if (changedCount > 0) {
+    LOG('STATIC_DATA_CHANGED=true');
+    // Write marker file for workflow
+    writeFileSync(join(dataDir, 'CHANGED'), `${changedCount} files changed\n`);
+  } else {
+    LOG('STATIC_DATA_CHANGED=false');
+  }
 }
 
 main().catch(err => {
