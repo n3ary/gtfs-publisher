@@ -34,11 +34,17 @@ jobs:
           NEW_HASH=$(cat output/agency-2/HASH)
           echo "New hash: $NEW_HASH"
 
-          # Get the latest release body for this agency (contains the previous hash)
-          PREV_HASH=$(gh release list --limit 1 --json tagName,body \
-            --jq '.[] | select(.tagName | startswith("agency-2-")) | .body' 2>/dev/null \
-            | grep -oP 'hash: \K[a-f0-9]{64}' || echo "")
+          # Get the latest tag for this agency, then fetch its body for the hash
+          LATEST_TAG=$(gh release list --limit 10 --json tagName \
+            --jq '[.[] | select(.tagName | startswith("agency-2-"))][0].tagName' 2>/dev/null || echo "")
 
+          PREV_HASH=""
+          if [ -n "$LATEST_TAG" ]; then
+            PREV_HASH=$(gh release view "$LATEST_TAG" --json body --jq '.body' 2>/dev/null \
+              | grep -oE 'hash: [a-f0-9]{64}' | cut -d' ' -f2 || echo "")
+          fi
+
+          echo "Latest tag: ${LATEST_TAG:-none}"
           echo "Previous hash: ${PREV_HASH:-none}"
 
           if [ "$NEW_HASH" = "$PREV_HASH" ]; then
