@@ -90,8 +90,9 @@ function projectFeed(iso, raw, enhancer) {
   };
 
   if (enhancer) {
-    // Local enhancement layer takes precedence on metadata; we still
-    // record the underlying Transitous name for fetch-gtfs.
+    // Local enhancement layer overlays the Transitous metadata. The
+    // enhancer only needs to declare what it changes; everything else
+    // (name, country, license.spdx_identifier, ...) falls through.
     const c = enhancer.cfg;
     return {
       feed: {
@@ -109,7 +110,11 @@ function projectFeed(iso, raw, enhancer) {
         agencies: [], // derive-bbox re-reads agency.txt from the built zip
         realtime: c.realtime ?? null,
         tranzy: c.tranzy ?? null,
-        license: c.license ?? transitousFallback.license,
+        license: {
+          spdx_identifier: c.license?.spdx_identifier ?? transitousFallback.license.spdx_identifier,
+          attribution_text: c.license?.attribution_text ?? transitousFallback.license.attribution_text,
+          attribution_url: c.license?.attribution_url ?? transitousFallback.license.attribution_url,
+        },
         // pipeline-internal: tells fetch-gtfs to seed the build from Transitous
         _enhances: { iso, transitousName: raw.name, feedDir: enhancer.dir },
       },

@@ -41,7 +41,7 @@ export function makeAppRegistry(feedEntries) {
         name: f.name,
         country: f.country,
         ...(f.region != null ? { region: f.region } : {}),
-        timezone: f.timezone ?? (agencies[0]?.agency_timezone ?? 'UTC'),
+        timezone: f.timezone ?? e.timezone ?? 'UTC',
         ...(f.languages && f.languages.length ? { languages: f.languages } : {}),
         bbox: e.bbox,
         center: e.center,

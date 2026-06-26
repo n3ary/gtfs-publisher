@@ -287,7 +287,7 @@ const stopTimesTxt = stLines.join('\n') + '\n';
 
 const feedInfoTxt = [
   'feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version',
-  `neary-gtfs,https://github.com/ciotlosm/neary-gtfs,${config.languages[0] ?? 'en'},${startDate},${endDate},${isoDate}`,
+  `neary-gtfs,https://github.com/ciotlosm/neary-gtfs,ro,${startDate},${endDate},${isoDate}`,
 ].join('\n') + '\n';
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -295,7 +295,7 @@ const feedInfoTxt = [
 // ──────────────────────────────────────────────────────────────────────────
 
 mkdirSync(OUTPUTS, { recursive: true });
-const outZipPath = join(OUTPUTS, 'ctp-cluj.gtfs.zip');
+const outZipPath = process.env.NEARY_OUTPUT_ZIP ?? join(OUTPUTS, 'cluj-napoca.gtfs.zip');
 
 // Stage everything in the seed dir (which already has agency/routes/stops/shapes
 // extracted). Overwrite the files we regenerate.

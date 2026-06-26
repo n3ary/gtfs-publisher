@@ -45,14 +45,14 @@ async function fetchToFile(url, dest) {
   await new Promise((r) => ws.end(r));
 }
 
-function runLocalBuild(feed) {
+function runLocalBuild(feed, outputZipPath) {
   const feedDir = feed._enhances?.feedDir;
   if (!feedDir) throw new Error(`feed ${feed.id}: source.type=build but no _enhances.feedDir`);
   const cfg = JSON.parse(readFileSync(join(ROOT, 'feeds', feedDir, 'config.json'), 'utf8'));
   const script = cfg.build?.script ?? 'build.js';
   const rel = join('feeds', feedDir, script);
 
-  const env = { ...process.env };
+  const env = { ...process.env, NEARY_OUTPUT_ZIP: outputZipPath };
   if (feed._seedZipPath) env.NEARY_SEED_ZIP = feed._seedZipPath;
 
   console.log(`[fetch-gtfs] ${feed.id} ← node ${rel}${env.NEARY_SEED_ZIP ? ` (seed: ${env.NEARY_SEED_ZIP})` : ''}`);
@@ -69,8 +69,6 @@ export async function fetchGtfs(feed) {
   const dest = join(OUTPUTS, `${feed.id}.gtfs.zip`);
 
   if (feed.source.type === 'build') {
-    // Enhanced build: fetch the Transitous seed first, hand its path
-    // to the build script via NEARY_SEED_ZIP.
     if (feed._enhances) {
       const { iso, transitousName } = feed._enhances;
       const seedUrl = `${TRANSITOUS_GTFS_BASE}/${iso.toLowerCase()}_${encodeURIComponent(transitousName)}.gtfs.zip`;
@@ -79,8 +77,7 @@ export async function fetchGtfs(feed) {
       await fetchToFile(seedUrl, seedDest);
       feed._seedZipPath = seedDest;
     }
-    runLocalBuild(feed);
-    // Clean up the seed (build script has consumed it)
+    runLocalBuild(feed, dest);
     if (feed._seedZipPath && existsSync(feed._seedZipPath)) unlinkSync(feed._seedZipPath);
   } else if (feed.source.type === 'transitous') {
     const isoLower = (feed.country || '').toLowerCase();

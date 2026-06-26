@@ -96,15 +96,15 @@ export function deriveBbox(zipPath) {
     lon: round((minLon + maxLon) / 2),
   };
 
-  // ---- agency.txt → agencies[] ----
+  // ---- agency.txt → agencies[] + timezone ----
   const agencyCsv = readEntry(zipPath, 'agency.txt');
-  const agencies = agencyCsv
-    ? parseCsv(agencyCsv).map((a) => ({
-        agency_id: a.agency_id || null,
-        agency_name: a.agency_name,
-        agency_url: a.agency_url || null,
-      }))
-    : [];
+  const agencyRows = agencyCsv ? parseCsv(agencyCsv) : [];
+  const agencies = agencyRows.map((a) => ({
+    agency_id: a.agency_id || null,
+    agency_name: a.agency_name,
+    agency_url: a.agency_url || null,
+  }));
+  const timezone = agencyRows.find((a) => a.agency_timezone)?.agency_timezone ?? null;
 
   // ---- feed_info.txt → validity / timezone (optional) ----
   const feedInfoCsv = readEntry(zipPath, 'feed_info.txt');
@@ -121,5 +121,5 @@ export function deriveBbox(zipPath) {
     }
   }
 
-  return { bbox, center, agencies, validity };
+  return { bbox, center, agencies, timezone, validity };
 }

@@ -1,0 +1,18 @@
+{
+  "enhances": "Cluj-Napoca",
+  "realtime": {
+    "vehicle_positions": "https://cluj-rt-feed.gtfs.ro/vehiclePositions",
+    "trip_updates": "https://cluj-rt-feed.gtfs.ro/tripUpdates",
+    "service_alerts": "https://cluj-rt-feed.gtfs.ro/serviceAlerts"
+  },
+  "tranzy": { "agency_id": "2" },
+  "license": {
+    "attribution_text": "© Compania de Transport Public Cluj-Napoca",
+    "attribution_url": "https://www.ctpcluj.ro/"
+  },
+  "build": {
+    "csvUrlPattern": "https://ctpcj.ro/orare/csv/orar_{routeShortName}_{serviceId}.csv",
+    "serviceKeys": ["lv", "s", "d"],
+    "serviceIdMap": { "lv": "LV", "s": "S", "d": "D" }
+  }
+}
