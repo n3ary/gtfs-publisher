@@ -17,13 +17,9 @@ const OUTPUTS = join(ROOT, 'outputs');
 const SCHEMA_PATH = join(ROOT, 'schemas', 'feeds.schema.json');
 
 /**
- * @param {Array<object>} feedEntries - one per resolved feed, shape:
- *   {
- *     feed:   <from resolve-feeds.js>,
- *     gtfs:   { localPath, sizeBytes, hash },
- *     sqlite: { localPath, sizeBytes } | null,
- *     bbox, center, agencies, timezone, validity,
- *   }
+ * @param {Array<object>} feedEntries - either fresh entries
+ *   { feed, gtfs, sqlite, bbox, center, agencies, timezone, validity, upstreamEtag }
+ *   or reused entries { reused: true, prevEntry: <previous feeds.json entry> }
  */
 export function makeAppRegistry(feedEntries) {
   const generatedAt = new Date().toISOString();
@@ -32,6 +28,11 @@ export function makeAppRegistry(feedEntries) {
     version: generatedAt,
     generated_at: generatedAt,
     feeds: feedEntries.map((e) => {
+      // Reuse path: pass the previous entry through untouched. Keeping
+      // its original generated_at is intentional — it reflects when the
+      // underlying data was actually produced, not when we re-verified.
+      if (e.reused) return e.prevEntry;
+
       const f = e.feed;
       return {
         id: f.id,
@@ -43,7 +44,10 @@ export function makeAppRegistry(feedEntries) {
         bbox: e.bbox,
         center: e.center,
         agencies: e.agencies,
-        source: f.source,
+        source: {
+          ...f.source,
+          ...(e.upstreamEtag ? { upstream_etag: e.upstreamEtag } : {}),
+        },
         files: {
           gtfs_zip: e.gtfs.localPath ? `feeds/${f.id}.gtfs.zip` : null,
           sqlite_gz: e.sqlite ? `feeds/${f.id}.sqlite3.gz` : null,
@@ -52,8 +56,6 @@ export function makeAppRegistry(feedEntries) {
           gtfs_zip: e.gtfs.sizeBytes,
           sqlite_gz: e.sqlite ? e.sqlite.sizeBytes : null,
         },
-        // hash = sha256 of the .sqlite3.gz (what the app actually downloads).
-        // The .gtfs.zip hash is in gtfs.hash but isn't the freshness primitive.
         hash: e.sqlite?.hash ?? e.gtfs.hash ?? null,
         generated_at: generatedAt,
         valid_from: e.validity?.from ?? null,

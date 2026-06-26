@@ -84,7 +84,10 @@ function projectFeed(iso, raw, enhancer, mdbRealtime) {
     source: {
       type: 'transitous',
       publisher: `Transitous (${raw.type})`,
-      upstream_url: raw.url ?? null,
+      // For mobility-database / transitland-atlas types, ro.json has no
+      // direct URL — Transitous's pipeline resolves the canonical URL.
+      // We record the API URL fetch-gtfs actually hits.
+      upstream_url: raw.url ?? `${TRANSITOUS_GTFS_BASE}/${iso.toLowerCase()}_${encodeURIComponent(raw.name)}.gtfs.zip`,
     },
     agencies: [], // derive-bbox re-reads agency.txt; this is just a placeholder
     realtime: mdbRealtime,

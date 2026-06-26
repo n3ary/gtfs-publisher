@@ -73,9 +73,10 @@
           "required": ["type", "publisher"],
           "additionalProperties": false,
           "properties": {
-            "type":         { "enum": ["build", "transitous", "mobility-database"] },
-            "publisher":    { "type": "string", "minLength": 1 },
-            "upstream_url": { "type": ["string", "null"], "format": "uri" }
+            "type":          { "enum": ["build", "transitous", "mobility-database"] },
+            "publisher":     { "type": "string", "minLength": 1 },
+            "upstream_url":  { "type": ["string", "null"], "format": "uri" },
+            "upstream_etag": { "type": ["string", "null"], "description": "HTTP ETag of the upstream zip last time we processed it. Used for change-detection skip on the next build." }
           }
         },
         "files": {
