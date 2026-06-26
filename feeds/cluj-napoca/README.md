@@ -30,7 +30,7 @@ The pipeline:
 > Trip IDs follow the canonical CTP format
 > `<route_id>_<dir>_<service>_<seq>_<HHMM>` (e.g. `45_1_LV_9_0721`),
 > which matches the `cluj-rt-feed.gtfs.ro` GTFS-Realtime feed exactly.
-> This is what lets the v2 app JOIN GTFS-RT vehicle positions directly
+> This is what lets the app JOIN GTFS-RT vehicle positions directly
 > to our SQLite blob with no remapping.
 
 ## Files
@@ -49,12 +49,11 @@ The pipeline:
 > source but its update cadence is irregular — sometimes weeks stale.
 > CTP's own CSV timetables at `ctpcj.ro/orare/csv/` are refreshed
 > within hours of a schedule change. We scrape those daily to deliver
-> the freshest possible schedule to the v2 app.
+> the freshest possible schedule to the app.
 
-The eventual upstream PR to Transitous (M4 of the [roadmap](https://github.com/ciotlosm/neary/blob/rebuild/v2-svelte-sqlite/docs/rebuild-v2/neary-gtfs-plan.md#10-evolution-roadmap))
-will register our enhanced output as a new source so other Transitous
-downstream consumers get the same freshness without needing to run
-this script themselves.
+The eventual upstream PR to Transitous (will register our enhanced
+output as a new source so other Transitous downstream consumers get
+the same freshness without needing to run this script themselves).
 
 ## Routes without CSV data
 

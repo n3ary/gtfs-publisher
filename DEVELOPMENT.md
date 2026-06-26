@@ -101,7 +101,7 @@ CTP publishes CSV files at `https://ctpcj.ro/orare/csv/orar_<route>_<service>.cs
 - Service IDs: `lv` (weekday), `s` (Saturday), `d` (Sunday)
 - URL pattern + service mapping in [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json)
 - Routes without CSV data are skipped (logged); their structural data
-  (route + stops + shapes) is preserved from the seed zip — the v2 app
+  (route + stops + shapes) is preserved from the seed zip — the app
   treats them as sparse-schedule feeds, not missing.
 
 ## CI
