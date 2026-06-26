@@ -3,7 +3,9 @@
 ## Prerequisites
 
 - Node.js 24+
-- A Tranzy API key (set as `TRANZY_API_KEY` environment variable)
+- `unzip` and `java` on PATH (CI runners have both; macOS/Linux usually do too)
+- A Tranzy API key (set as `TRANZY_API_KEY` env var) — only needed for the
+  legacy `npm run sync` step, gone in M2
 
 ## Setup
 
@@ -15,37 +17,64 @@ cp .env.example .env   # add your TRANZY_API_KEY
 ## Commands
 
 ```bash
-# Sync all agencies from Tranzy API (fetches routes, stops, trips, stop_times, shapes)
-source .env && npm run sync
+# Legacy path (still produces `releases` branch artifacts on main):
+source .env && npm run sync                 # Tranzy → agencies/2/*.json
+node src/build.js --agency 2                # → output/agency-2/
 
-# Build offline schedule for CTP Cluj (agency 2)
-node src/build.js --agency 2
+# New pipeline (M1, → binaries-staging):
+npm run pipeline                            # uses RESOLVE_INCLUDE_TRANSITOUS=false by default
+RESOLVE_INCLUDE_TRANSITOUS=true npm run pipeline   # also mirrors Transitous (M2 path)
+
+# Local smoke (doesn't need the legacy build to have run; uses any
+# existing zip at outputs/feeds/ctp-cluj.gtfs.zip):
+node src/pipeline/_smoke.js
 ```
 
-## How it works
+## How it works (M1)
 
-### Daily pipeline (GitHub Actions)
-
-1. `npm run sync` — fetches all agencies' static data from Tranzy, writes to `data/`, updates `agencies/<id>/` registry files
-2. `node src/build.js --agency 2` — fetches CTP CSV schedules, generates GTFS + compact JSON
-3. Hash comparison — only publishes to releases branch if data changed
-
-### Data flow
+### Pipeline orchestrator
 
 ```
-Tranzy API → sync-tranzy.js → data/<id>/*.json (raw) + agencies/<id>/*.json (registry)
-CTP CSVs   → build.js       → output/agency-2/ (GTFS + schedule JSON)
-Both       → releases branch (served to neary app)
+src/pipeline/build-all.js
+  │
+  ├─ resolve-feeds.js   ← countries.json + Transitous ro.json
+  ├─ for each feed:
+  │   ├─ fetch-gtfs.js  ← build local (ctp-cluj) or download (Transitous)
+  │   ├─ derive-bbox.js ← unzip -p → stops.txt + agency.txt + feed_info.txt
+  │   └─ make-sqlite.js ← stub (M2)
+  └─ make-app-registry.js → outputs/feeds.json (schema-validated)
 ```
 
-### Adding a new agency
+### Outputs
 
-1. Get the Tranzy `agency_id` (visible in `data/agency.json` after sync)
-2. Create `agencies/<id>/config.json` with the agency's URL patterns
-3. Add a build workflow (copy `build-agency-2.yml`)
+```
+outputs/
+├── feeds.json
+└── feeds/
+    └── ctp-cluj.gtfs.zip   (+ .sqlite3.gz in M2)
+```
 
-## CSV schedule source (CTP Cluj)
+### CI
+
+`.github/workflows/daily.yml` runs nightly (00:30 UTC), targeting the
+`binaries-staging` branch. The legacy `build-agency-2.yml` keeps running
+from `main` → `releases` for the v1 app.
+
+### Adding a new agency (M2+ scope)
+
+1. Add the country's ISO code to `countries.json` (if not already).
+2. Verify the country file at
+   `https://raw.githubusercontent.com/public-transport/transitous/main/feeds/<iso>.json`
+   contains a usable `type: http | transitland-atlas | mobility-database`
+   entry.
+3. Run `RESOLVE_INCLUDE_TRANSITOUS=true npm run pipeline` locally; check
+   `outputs/feeds.json` validates and the per-feed `.gtfs.zip` is sane.
+4. Push to `binaries-staging`. Validate end-to-end via the v2 app pointed
+   at the staging URL.
+
+## CSV schedule source (CTP Cluj, legacy)
 
 CTP publishes CSV files at `https://ctpcj.ro/orare/csv/orar_<route>_<service>.csv`
 
 Service IDs: `lv` (weekday), `s` (Saturday), `d` (Sunday)
+

@@ -1,43 +1,75 @@
 # neary-gtfs
 
-Daily pipeline that syncs transit data from the Tranzy API and builds offline schedules from CTP Cluj CSV timetables. Publishes everything to the `releases` branch, served directly to the [neary](https://github.com/ciotlosm/neary) PWA via `raw.githubusercontent.com` (CORS-open, no proxy needed).
+Daily pipeline producing GTFS feeds for the [neary](https://github.com/ciotlosm/neary) PWA.
+
+> **Active refactor**: this branch (`refactor/feeds-from-transitous`) is
+> migrating to a multi-feed model aligned with
+> [public-transport/transitous](https://github.com/public-transport/transitous).
+> See [`docs/rebuild-v2/neary-gtfs-plan.md`](https://github.com/ciotlosm/neary/blob/rebuild/v2-svelte-sqlite/docs/rebuild-v2/neary-gtfs-plan.md)
+> in the neary repo for the full roadmap (M0 → M5).
+>
+> Current milestone: **M1 — repo scaffold** (this branch). The
+> `releases` branch / v1 app continue working from `main` unchanged.
 
 ## What it produces
 
+**M1 (this branch, → `binaries-staging`)**:
+
 | File | Source | Consumer |
 |------|--------|----------|
-| `data/<id>/routes.json` | Tranzy API | neary app (static data) |
-| `data/<id>/stops.json` | Tranzy API | neary app (static data) |
-| `data/<id>/trips.json` | Tranzy API | neary app (static data) |
-| `data/<id>/stop_times.json` | Tranzy API | neary app (static data) |
-| `data/<id>/shapes.json` | Tranzy API | neary app (static data) |
-| `data/agency.json` | Tranzy API | neary app (agency list) |
-| `data/hashes.json` | Computed | neary app (freshness check) |
-| `agency-2-schedule.json` | CTP CSV scrape | neary app (offline schedule) |
-| `agency-2-gtfs.zip` | CTP CSV scrape | GTFS validators/interop |
+| `outputs/feeds.json` | new pipeline | neary v2 app (single registry) |
+| `outputs/feeds/ctp-cluj.gtfs.zip` | CTP CSV scrape (legacy `src/build.js`) | neary v2 app + GTFS validators |
 
-## How it works
+**Legacy (`main` → `releases`, unchanged)**:
 
-A single GitHub Action runs daily at 00:00 UTC (or on manual trigger):
+| File | Source | Consumer |
+|------|--------|----------|
+| `data/<id>/*.json` | Tranzy API (`src/sync-tranzy.js`) | neary v1 app |
+| `agency-2-schedule.json` | CTP CSV scrape (`src/build.js`) | neary v1 app |
+| `agency-2-gtfs.zip` | same | GTFS validators / interop |
 
-1. **Sync** (`npm run sync`) — fetches all agencies' static data from the Tranzy API. Compares SHA-256 hashes against previous run; only writes changed files.
+## How it works (M1)
 
-2. **Build** (`node src/build.js --agency 2`) — scrapes CTP Cluj CSV schedules, generates GTFS files + compact schedule JSON.
+`.github/workflows/daily.yml` runs at 00:30 UTC (after Transitous's daily
+import) or on manual trigger:
 
-3. **Publish** — pushes changed files to the `releases` branch. Creates a GitHub Release with the schedule ZIP (only if schedule hash changed).
+1. **Sync legacy registry** (`npm run sync`) — still needed: the ctp-cluj
+   build reads route/stop registry from `agencies/2/*.json`. Replaced in M2.
+2. **Pipeline** (`npm run pipeline` = `node src/pipeline/build-all.js`):
+   - `resolve-feeds.js` → ctp-cluj only (set `RESOLVE_INCLUDE_TRANSITOUS=true` to test the multi-feed path)
+   - `fetch-gtfs.js` → invokes legacy `src/build.js` for ctp-cluj
+   - `derive-bbox.js` → reads stops.txt + agency.txt + feed_info.txt from the zip
+   - `make-sqlite.js` → no-op stub (M2 wires it up)
+   - `make-app-registry.js` → writes `outputs/feeds.json`, schema-validated
+3. **GTFS validator** — canonical MobilityData validator, fails build on any ERROR
+4. **Publish** — push `outputs/` to `binaries-staging` branch
 
-The neary app fetches from:
+App consumes from:
 ```
-https://raw.githubusercontent.com/ciotlosm/neary-gtfs/releases/data/<id>/<endpoint>.json
+https://raw.githubusercontent.com/ciotlosm/neary-gtfs/binaries-staging/feeds.json
 ```
+(After M2: `binaries` instead of `binaries-staging`; jsDelivr in front.)
 
 ## Structure
 
 ```
-agencies/2/config.json       # CTP Cluj URL patterns + service day mappings
-src/sync-tranzy.js           # Syncs all agencies from Tranzy API
-src/build.js                 # Builds schedule from CTP CSV files
-.github/workflows/           # Daily pipeline
+countries.json                  # ISO codes whose Transitous feeds we mirror
+schemas/feeds.schema.json       # JSON Schema for outputs/feeds.json
+src/
+  build.js                      # legacy CTP build (kept until M2)
+  sync-tranzy.js                # legacy Tranzy registry sync (kept until M2)
+  pipeline/
+    build-all.js                # daily orchestrator
+    resolve-feeds.js            # countries.json + Transitous → feed list
+    fetch-gtfs.js               # build local or fetch upstream
+    derive-bbox.js              # zip → bbox + agencies + validity
+    make-sqlite.js              # M2 stub
+    make-app-registry.js        # → outputs/feeds.json
+    _smoke.js                   # local end-to-end check (no CI)
+agencies/2/config.json          # CTP URL patterns (read by src/build.js)
+.github/workflows/
+  build-agency-2.yml            # legacy: main → releases
+  daily.yml                     # M1: refactor → binaries-staging
 ```
 
 ## Local development
@@ -46,4 +78,6 @@ See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 
-Schedule data © CTP Cluj-Napoca. Generated for public transit information purposes.
+Schedule data © CTP Cluj-Napoca. Generated for public transit information
+purposes.
+

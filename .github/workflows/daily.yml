@@ -1,0 +1,106 @@
+name: "Daily multi-feed pipeline (M1: binaries-staging)"
+
+# M1 publishes to `binaries-staging` only — `binaries` remains
+# untouched until M2 when the cutover is ready.
+#
+# Triggers:
+#   - cron 00:30 UTC (after Transitous's ~00:00 UTC daily import)
+#   - manual workflow_dispatch
+#
+# Notes:
+#   - On the `refactor/feeds-from-transitous` branch the cron does NOT
+#     fire (GitHub only runs crons from the repo's default branch).
+#     Use workflow_dispatch from this branch during M1 testing.
+#   - The legacy build-agency-2.yml workflow remains on `main` and
+#     keeps producing the `releases` branch artifacts for the v1 app.
+
+on:
+  schedule:
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      include_transitous:
+        description: 'Mirror Transitous feeds in addition to ctp-cluj'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync legacy registry (Tranzy → agencies/2/)
+        # Until M2 the ctp-cluj build still reads its route/stop
+        # registry from agencies/2/*.json populated by sync-tranzy.js.
+        # This is the last thing depending on the Tranzy API; M2
+        # replaces it with a public-source seed.
+        run: |
+          mkdir -p data
+          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/releases/data/hashes.json" \
+            -o data/hashes.json 2>/dev/null || echo "{}" > data/hashes.json
+          node src/sync-tranzy.js
+        env:
+          TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY }}
+
+      - name: Run pipeline
+        run: node src/pipeline/build-all.js
+        env:
+          RESOLVE_INCLUDE_TRANSITOUS: ${{ inputs.include_transitous || 'false' }}
+          STRICT: 'true'
+
+      - name: Validate ctp-cluj GTFS (canonical MobilityData validator)
+        # M1 success criterion: zero ERRORs from the canonical validator.
+        # Java validator runs as a JAR pulled from GitHub releases.
+        run: |
+          curl -sL -o /tmp/gtfs-validator.jar \
+            https://github.com/MobilityData/gtfs-validator/releases/latest/download/gtfs-validator-cli.jar
+          mkdir -p /tmp/gtfs-validator-out
+          java -jar /tmp/gtfs-validator.jar \
+            -i outputs/feeds/ctp-cluj.gtfs.zip \
+            -o /tmp/gtfs-validator-out
+          ERRORS=$(jq '[.notices[] | select(.severity=="ERROR")] | length' /tmp/gtfs-validator-out/report.json)
+          echo "Validator ERROR count: $ERRORS"
+          test "$ERRORS" -eq 0
+
+      - name: Publish to binaries-staging
+        run: |
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          git clone --single-branch --branch binaries-staging --depth 1 \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            /tmp/binaries-staging 2>/dev/null \
+          || {
+            # First-ever build: branch doesn't exist; create as orphan
+            git clone --depth 1 \
+              "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+              /tmp/binaries-staging
+            cd /tmp/binaries-staging
+            git checkout --orphan binaries-staging
+            git rm -rf . >/dev/null
+            cd -
+          }
+
+          cp -r outputs/* /tmp/binaries-staging/
+          cd /tmp/binaries-staging
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "no changes" || {
+            git commit -m "pipeline: $DATE"
+            git push origin binaries-staging
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
