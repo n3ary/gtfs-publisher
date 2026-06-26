@@ -62,31 +62,9 @@ Published nightly to the `binaries` branch by
 
 ## Pipeline
 
-`npm run pipeline` (`src/pipeline/build-all.js`):
-
-1. `resolve-feeds.js` — read `countries.json` `include[]` as the
-   **single source of truth** for which feeds to publish. For each
-   entry: fetch the matching source from Transitous's `feeds/<iso>.json`.
-   If a `feeds/<id>/config.json` declares `enhances: "<name>"` matching
-   that Transitous source, promote it to an enhanced build; otherwise
-   plain mirror.
-2. For each feed:
-   - `fetch-gtfs.js`:
-     - **Plain mirror**: download
-       `api.transitous.org/gtfs/<iso>_<name>.gtfs.zip`
-     - **Enhanced build**: download the same Transitous zip as seed,
-       hand its path to `feeds/<id>/build.js` via `NEARY_SEED_ZIP`;
-       the script mutates the zip and writes the final
-       `outputs/feeds/<id>.gtfs.zip`
-   - `derive-bbox.js` — `unzip -p` the zip's `stops.txt` / `agency.txt` /
-     `feed_info.txt` → bbox, agencies, validity dates
-   - `make-sqlite.js` — `.zip` → `.sqlite3.gz`
-3. `make-app-registry.js` — write `outputs/feeds.json` (Ajv-validated).
-
-App consumes from (via jsDelivr):
-```
-https://cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/feeds.json
-```
+Daily orchestrator + helpers live in [`src/pipeline/`](src/pipeline/README.md) —
+see that README for the step-by-step build flow and the skip-on-unchanged
+mechanism. Run locally with `npm run pipeline`.
 
 ### Locally-enhanced feeds
 
