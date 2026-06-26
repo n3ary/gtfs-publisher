@@ -1,0 +1,4 @@
+# Renders the "Sponsor" button on the repo page — purely GitHub UI,
+# no README clutter. Same config as ciotlosm/lovelace-thermostat-dark-card.
+github: [ciotlosm]
+buy_me_a_coffee: gUEVWJc
