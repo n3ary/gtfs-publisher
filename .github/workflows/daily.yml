@@ -36,41 +36,6 @@ jobs:
           STRICT: 'true'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate locally-built GTFS zips (canonical MobilityData validator)
-        # Transitous-mirrored feeds are already validated upstream by Transitous;
-        # we only validate the zips we BUILD ourselves (source.type=="build" in
-        # feeds.json). Build fails on any ERROR-severity notice.
-        run: |
-          BUILT_IDS=$(jq -r '.feeds[] | select(.source.type=="build") | .id' outputs/feeds.json)
-          if [ -z "$BUILT_IDS" ]; then
-            echo "No locally-built feeds — skipping validator."
-            exit 0
-          fi
-
-          VALIDATOR_URL=$(curl -sL https://api.github.com/repos/MobilityData/gtfs-validator/releases/latest \
-            | jq -r '.assets[] | select(.name | test("cli\\.jar$")) | .browser_download_url')
-          curl -sL -o /tmp/gtfs-validator.jar "$VALIDATOR_URL"
-          test -s /tmp/gtfs-validator.jar || { echo "::error::validator jar download failed"; exit 1; }
-
-          FAILED=0
-          for id in $BUILT_IDS; do
-            zip="outputs/feeds/$id.gtfs.zip"
-            out="/tmp/gtfs-validator-out/$id"
-            mkdir -p "$out"
-            echo "::group::Validating $id"
-            java -jar /tmp/gtfs-validator.jar -i "$zip" -o "$out" >/dev/null
-            errors=$(jq '[.notices[] | select(.severity=="ERROR")] | length' "$out/report.json")
-            warnings=$(jq '[.notices[] | select(.severity=="WARNING")] | length' "$out/report.json")
-            echo "$id: ERROR=$errors WARNING=$warnings"
-            echo "::endgroup::"
-            if [ "$errors" -ne 0 ]; then
-              echo "::error::$id has $errors validator ERRORs"
-              jq '[.notices[] | select(.severity=="ERROR")][:3]' "$out/report.json"
-              FAILED=1
-            fi
-          done
-          exit $FAILED
-
       - name: Publish to ${{ env.PUBLISH_BRANCH }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)

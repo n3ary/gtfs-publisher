@@ -22,6 +22,7 @@ import { fetchGtfs } from './fetch-gtfs.js';
 import { deriveBbox } from './derive-bbox.js';
 import { makeSqlite } from './make-sqlite.js';
 import { makeAppRegistry } from './make-app-registry.js';
+import { validate } from './validate.js';
 
 async function main() {
   const t0 = Date.now();
@@ -33,6 +34,12 @@ async function main() {
     console.log(`\n=== ${feed.id} (${feed.source.type}) ===`);
     try {
       const gtfs = await fetchGtfs(feed);
+      // Validate only what we BUILD; Transitous mirrors are already
+      // validated upstream and re-validating is redundant churn.
+      if (feed.source.type === 'build') {
+        const { warnings } = validate(gtfs.localPath);
+        for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
+      }
       const meta = deriveBbox(gtfs.localPath);
       const sqlite = await makeSqlite(gtfs.localPath, feed.id);
       entries.push({ feed, gtfs, sqlite, ...meta });
