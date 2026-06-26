@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ciotlosm/neary-gtfs/schemas/feeds.schema.json",
   "title": "neary-gtfs app-facing feed registry",
-  "description": "The feeds.json catalog published to the binaries branch and consumed by the neary v2 PWA on launch.",
+  "description": "The feeds.json catalog published to the binaries branch and consumed by the neary PWA on launch.",
   "type": "object",
   "required": ["version", "generated_at", "feeds"],
   "additionalProperties": false,

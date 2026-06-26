@@ -1,13 +1,12 @@
 /**
  * make-sqlite.js — convert a GTFS .zip into a SQLite blob (+ gzip).
  *
- * Ported from neary's scripts/build-sqlite/index.mjs (which becomes
- * dead code in apps/web once the v2 app cuts over to this output).
+ * Mirrors the GTFS spec 1:1 into the schema the app's worker reads
+ * (apps/web/src/lib/workers/gtfs.worker.ts on the neary side).
  *
- * Adjustments for the pipeline:
- *   - Input is a local .zip path passed by fetch-gtfs.js (no download)
- *   - Output goes to outputs/feeds/<feedId>.sqlite3.gz (raw .sqlite3
- *     written transiently then unlinked)
+ * Pipeline contract:
+ *   - Input: a local .zip path passed by fetch-gtfs.js (no download)
+ *   - Output: outputs/feeds/<feedId>.sqlite3.gz (raw .sqlite3 transient)
  *   - No manifest written — feeds.json carries all the metadata
  *
  * Returns: { localPath, sizeBytes } for the .sqlite3.gz file.
@@ -26,7 +25,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
 const OUTPUTS = join(ROOT, 'outputs', 'feeds');
 
-// ----- GTFS table schema (must match what the v2 app's worker expects) ----
+// ----- GTFS table schema (must match what the app's worker expects) ----
 
 const SCHEMA = {
   agency: {

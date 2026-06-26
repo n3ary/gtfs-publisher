@@ -1,6 +1,6 @@
 # neary-gtfs
 
-Multi-feed GTFS publisher for the [neary](https://github.com/ciotlosm/neary) v2 PWA.
+Multi-feed GTFS publisher for the [neary](https://github.com/ciotlosm/neary) PWA.
 
 > [!NOTE]
 > **Live registry** (single source of truth for what's currently published):
@@ -34,11 +34,11 @@ flowchart TD
     G --> I["outputs/feeds.json<br/>+ outputs/feeds/*.sqlite3.gz"]
 
     I -->|"push to <code>binaries</code> branch"| J["jsDelivr CDN<br/><i>cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/...</i>"]
-    J --> K["neary v2 PWA<br/>downloads .sqlite3.gz into OPFS"]
+    J --> K["neary PWA<br/>downloads .sqlite3.gz into OPFS"]
 ```
 
 Three publishers (Transitous, MobilityData, us), one app-facing
-registry — the v2 app doesn't have to know any of this. It fetches
+registry — the app doesn't have to know any of this. It fetches
 `feeds.json`, picks the user's feed by GPS bbox, downloads one
 `.sqlite3.gz` blob. Done.
 
@@ -49,8 +49,8 @@ Published nightly to the `binaries` branch by
 
 | File | Source | Consumer |
 |------|--------|----------|
-| `feeds.json` | pipeline | neary v2 app (single registry) |
-| `feeds/<id>.sqlite3.gz` | [`make-sqlite.js`](src/pipeline/make-sqlite.js) | neary v2 app (OPFS) — **always present** |
+| `feeds.json` | pipeline | neary app (single registry) |
+| `feeds/<id>.sqlite3.gz` | [`make-sqlite.js`](src/pipeline/make-sqlite.js) | neary app (OPFS) — **always present** |
 | `feeds/<id>.gtfs.zip` | local enhancement ([`feeds/<id>/build.js`](feeds/)) | external GTFS tools — **only for `source.type === 'build'` feeds**; mirrors are accessible via Transitous's own URL |
 
 > [!NOTE]
@@ -104,26 +104,12 @@ Each subdirectory of `feeds/` documents its own enhancement:
 
 ## Structure
 
-```
-countries.json                # { countries: [iso], include: [transitous source names] }
-schemas/feeds.schema.json     # JSON Schema for outputs/feeds.json
-src/pipeline/
-  build-all.js                # orchestrator (skip-on-unchanged for both paths)
-  resolve-feeds.js            # countries.json + Transitous → feed list
-  fetch-gtfs.js               # build local or fetch upstream
-  derive-bbox.js              # zip → bbox + agencies + validity + timezone
-  make-sqlite.js              # zip → .sqlite3.gz
-  make-app-registry.js        # → outputs/feeds.json (Ajv-validated)
-  validate.js                 # light spec-shape check for locally-built zips
-  lib/
-    csv.js                    # tiny shared GTFS-CSV parser
-    http.js                   # shared UA + fetchJson/fetchToFile
-    mdb-rt.js                 # resolve realtime URLs via MobilityData catalog
-    zip-hash.js               # stable content-hash for change-detection on builds
-feeds/
-  cluj-napoca/                # see feeds/cluj-napoca/README.md
-.github/workflows/daily.yml   # cron 00:30 UTC + push to main + workflow_dispatch
-```
+The flow is in the [Mermaid diagram above](#how-it-layers); `ls -R src/pipeline feeds/` shows the file tree.
+
+Two conceptual entry points worth knowing:
+
+- [`countries.json`](countries.json) — single source of truth for what we publish
+- [`feeds/<id>/`](feeds/) — drop a `config.json` with `enhances: "<TransitousName>"` + a `build.js` here to add a local enhancement layer over a Transitous mirror (no JS edits in `src/pipeline/`)
 
 ## Local development
 
