@@ -15,9 +15,11 @@ on:
     branches:
       - main
     paths-ignore:
-      - 'README.md'
-      - 'DEVELOPMENT.md'
+      # Docs-only changes (any README, anywhere) don't need a rebuild.
+      # Force a build by including a non-md change in the PR.
+      - '**/*.md'
       - '.gitignore'
+      - 'LICENSE'
 
 permissions:
   contents: write
