@@ -1,5 +1,28 @@
 # Development Guide
 
+## Contributing
+
+`main` is protected — every change goes through a PR.
+
+```bash
+git checkout -b <type>/<short-description>
+# work, commit
+git push -u origin <branch>
+gh pr create --fill          # opens a PR with commit msg as body
+gh pr merge --squash --delete-branch
+```
+
+PR merge to `main` (and pushes to `main` more generally) auto-triggers
+the daily pipeline via `.github/workflows/daily.yml`. Docs-only PRs
+(`README.md`, `DEVELOPMENT.md`, `.gitignore`) are excluded via
+`paths-ignore` to avoid pointless rebuilds.
+
+Branch protection settings:
+- PR required, 0 approvals (solo-dev friendly)
+- Linear history (squash/rebase only)
+- No force-push, no branch deletion
+- Admin override allowed for genuine emergencies
+
 ## Prerequisites
 
 - Node.js 24+
