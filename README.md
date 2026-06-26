@@ -61,21 +61,19 @@ Published nightly to the `binaries` branch by
 | File | Source | Consumer |
 |------|--------|----------|
 | `feeds.json` | pipeline | neary v2 app (single registry) |
-| `feeds/<id>.sqlite3.gz` | `make-sqlite.js` | neary v2 app (OPFS) — **always present** |
-| `feeds/<id>.gtfs.zip` | local enhancement (`feeds/<id>/build.js`) | external GTFS tools — **only for `source.type=='build'` feeds**; mirrors are accessible via Transitous's own URL |
+| `feeds/<id>.sqlite3.gz` | [`make-sqlite.js`](src/pipeline/make-sqlite.js) | neary v2 app (OPFS) — **always present** |
+| `feeds/<id>.gtfs.zip` | local enhancement ([`feeds/<id>/build.js`](feeds/)) | external GTFS tools — **only for `source.type === 'build'` feeds**; mirrors are accessible via Transitous's own URL |
 
-Current feeds:
+> [!TIP]
+> Live registry (single source of truth for what's currently published):
+> [`https://cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/feeds.json`](https://cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/feeds.json)
 
-| id | source | gtfs.zip | sqlite3.gz | rows |
-|---|---|---:|---:|---|
-| `cluj-napoca` | local CSV enhance | 1.7 MB | 5.4 MB | 14k trips · 193k stop_times · 70k shape pts |
-| `bucuresti-ilfov` | Transitous mirror | — | 25 MB | 63k trips · 1.33M stop_times · 82k shape pts |
-
-`feeds.json` is Ajv-validated against
-[`schemas/feeds.schema.json`](schemas/feeds.schema.json) (draft-2020).
-Locally-built zips also get a light Node-side structural check
-([`src/pipeline/validate.js`](src/pipeline/validate.js)) — Transitous
-mirrors are trusted to upstream validation.
+> [!NOTE]
+> `feeds.json` is Ajv-validated against
+> [`schemas/feeds.schema.json`](schemas/feeds.schema.json) (draft-2020).
+> Locally-built zips also get a light Node-side structural check
+> ([`src/pipeline/validate.js`](src/pipeline/validate.js)) — Transitous
+> mirrors are trusted to upstream validation.
 
 ## Pipeline
 
@@ -105,22 +103,19 @@ App consumes from (via jsDelivr):
 https://cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/feeds.json
 ```
 
-### CTP Cluj enhancement
+### Locally-enhanced feeds
 
-`feeds/cluj-napoca/` declares `enhances: "Cluj-Napoca"` in its `config.json`.
-The pipeline:
-- Downloads `api.transitous.org/gtfs/ro_Cluj-Napoca.gtfs.zip` (Transitous
-  serves the mdb-2121 mirror with its spec-compliance fixes applied)
-- Hands the path to `feeds/cluj-napoca/build.js` via `NEARY_SEED_ZIP`, which:
-  - Keeps `agency.txt`, `routes.txt`, `stops.txt`, `shapes.txt` from seed
-  - **Regenerates** `calendar.txt`, `trips.txt`, `stop_times.txt` from
-    daily CTP CSV scrapes (`ctpcj.ro/orare/csv/orar_<route>_<svc>.csv`)
-  - Adds `feed_info.txt` with `feed_publisher_name="neary-gtfs"`
-  - Re-zips → `outputs/feeds/cluj-napoca.gtfs.zip`
+Each subdirectory of `feeds/` documents its own enhancement:
 
-Trip IDs follow the canonical CTP format
-`<route_id>_<dir>_<service>_<seq>_<HHMM>` (e.g. `45_1_LV_9_0721`),
-which matches the `cluj-rt-feed.gtfs.ro` GTFS-Realtime feed exactly.
+- [`feeds/cluj-napoca/`](feeds/cluj-napoca/README.md) — CTP Cluj
+  schedule enhancement (daily CSV scrape on top of the Transitous seed)
+
+> [!TIP]
+> To add another locally-enhanced feed, see
+> [DEVELOPMENT.md § Adding a feed](DEVELOPMENT.md#adding-a-feed).
+> No JS edits needed — drop a `feeds/<id>/config.json` with
+> `enhances: "<TransitousName>"` + a `build.js` and the pipeline
+> picks it up.
 
 ## Structure
 
@@ -128,18 +123,21 @@ which matches the `cluj-rt-feed.gtfs.ro` GTFS-Realtime feed exactly.
 countries.json                # { countries: [iso], include: [transitous source names] }
 schemas/feeds.schema.json     # JSON Schema for outputs/feeds.json
 src/pipeline/
-  build-all.js                # orchestrator
+  build-all.js                # orchestrator (skip-on-unchanged for both paths)
   resolve-feeds.js            # countries.json + Transitous → feed list
   fetch-gtfs.js               # build local or fetch upstream
-  derive-bbox.js              # zip → bbox + agencies + validity
+  derive-bbox.js              # zip → bbox + agencies + validity + timezone
   make-sqlite.js              # zip → .sqlite3.gz
   make-app-registry.js        # → outputs/feeds.json (Ajv-validated)
-  _smoke.js                   # local end-to-end check
-feeds/cluj-napoca/              # the only locally-enhanced feed
-  build.js                    # CSV enhance of CLUJ.zip
-  config.json                 # CSV URL pattern, service IDs, ...
-  lib/{csv,seed}.js           # parsers/loaders
-.github/workflows/daily.yml   # cron 00:30 UTC → binaries
+  validate.js                 # light spec-shape check for locally-built zips
+  lib/
+    csv.js                    # tiny shared GTFS-CSV parser
+    http.js                   # shared UA + fetchJson/fetchToFile
+    mdb-rt.js                 # resolve realtime URLs via MobilityData catalog
+    zip-hash.js               # stable content-hash for change-detection on builds
+feeds/
+  cluj-napoca/                # see feeds/cluj-napoca/README.md
+.github/workflows/daily.yml   # cron 00:30 UTC + push to main + workflow_dispatch
 ```
 
 ## Local development
