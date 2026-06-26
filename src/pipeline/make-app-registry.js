@@ -47,6 +47,7 @@ export function makeAppRegistry(feedEntries) {
         source: {
           ...f.source,
           ...(e.upstreamEtag ? { upstream_etag: e.upstreamEtag } : {}),
+          ...(e.contentHash ? { content_hash: e.contentHash } : {}),
         },
         files: {
           gtfs_zip: e.gtfs.localPath ? `feeds/${f.id}.gtfs.zip` : null,

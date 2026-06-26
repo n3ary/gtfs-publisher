@@ -24,6 +24,7 @@ import { makeSqlite } from './make-sqlite.js';
 import { makeAppRegistry } from './make-app-registry.js';
 import { validate } from './validate.js';
 import { UA } from './lib/http.js';
+import { stableZipContentHash } from './lib/zip-hash.js';
 
 import { existsSync, unlinkSync } from 'node:fs';
 
@@ -102,6 +103,26 @@ async function main() {
       if (feed.source.type === 'build') {
         const { warnings } = validate(gtfs.localPath);
         for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
+
+        // Skip-on-unchanged for local builds: compute a stable content
+        // hash of OUR built zip (ignores wrapper timestamps), compare
+        // with what we published last time. If identical → skip
+        // make-sqlite + publish, pass through previous registry entry.
+        // This is the build-feed analog of the mirror ETag check above.
+        const contentHash = stableZipContentHash(gtfs.localPath);
+        feed._contentHash = contentHash;
+        const prevEntry = prev.get(feed.id);
+        if (prevEntry?.source?.content_hash === contentHash && prevEntry.files?.sqlite_gz) {
+          console.log(`[build-all] ${feed.id}: build output unchanged (${contentHash.slice(0, 22)}…) — reusing previous`);
+          // Unlink the freshly-built .gtfs.zip; the previous one stays in `binaries`.
+          if (existsSync(gtfs.localPath)) unlinkSync(gtfs.localPath);
+          entries.push({ reused: true, prevEntry });
+          reused++;
+          continue;
+        }
+        if (prevEntry?.source?.content_hash) {
+          console.log(`[build-all] ${feed.id}: build output changed (${prevEntry.source.content_hash.slice(0, 22)}… → ${contentHash.slice(0, 22)}…) — publishing`);
+        }
       }
       const meta = deriveBbox(gtfs.localPath);
       const sqlite = await makeSqlite(gtfs.localPath, feed.id);
@@ -113,7 +134,12 @@ async function main() {
         gtfs.hash = null;
       }
 
-      entries.push({ feed, gtfs, sqlite, upstreamEtag: feed._currentEtag ?? null, ...meta });
+      entries.push({
+        feed, gtfs, sqlite,
+        upstreamEtag: feed._currentEtag ?? null,
+        contentHash: feed._contentHash ?? null,
+        ...meta,
+      });
       console.log(
         `[build-all] ${feed.id}: bbox=[${meta.bbox.minLat},${meta.bbox.minLon}]..[${meta.bbox.maxLat},${meta.bbox.maxLon}], gtfs=${gtfs.sizeBytes ? (gtfs.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'} sqlite_gz=${sqlite ? (sqlite.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}`,
       );

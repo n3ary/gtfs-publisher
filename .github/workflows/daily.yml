@@ -8,6 +8,16 @@ on:
   schedule:
     - cron: '30 0 * * *'
   workflow_dispatch:
+  # PR merges to main also trigger a build. Combined with branch
+  # protection (PR-required), this means every change goes through CI
+  # before being eligible to publish.
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'DEVELOPMENT.md'
+      - '.gitignore'
 
 permissions:
   contents: write
