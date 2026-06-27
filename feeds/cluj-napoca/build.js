@@ -80,10 +80,15 @@ async function fetchCsv(routeShortName, serviceKey) {
         // ctpcj.ro's WAF treats Node's undici defaults as suspicious.
         // Mimicking a real browser bypasses both the 415 and the silent
         // challenge-page-with-200 fallback. Tested headers as of 2026-06.
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/csv,text/plain,*/*;q=0.8',
-        'Accept-Language': 'ro-RO,ro;q=0.9,en;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7',
         'Referer': 'https://ctpcj.ro/index.php/ro/orare-linii/linii-urbane',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
       },
     });
     if (!res.ok) {
