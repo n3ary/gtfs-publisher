@@ -17,11 +17,12 @@
  *   `<route_id>_<direction>_<serviceId>_<seq>_<HHMM>`  e.g. 45_1_LV_9_0721
  */
 
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadSeed } from './lib/seed.js';
+import { computeStopTimes } from './lib/timing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -61,6 +62,7 @@ for (const trip of seed.trips) {
   patternByRouteDir.set(key, { stops, shapeId: trip.shapeId, headsign: trip.headsign });
 }
 LOG(`patterns: ${patternByRouteDir.size}`);
+LOG(`shapes: ${seed.shapesById.size}`);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Step 2: CSV scrape
@@ -157,42 +159,6 @@ function formatGtfsTime(seconds) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function interpolateStopTimes(startSec, stopSequence, avgSpeedKmh = 18) {
-  const numStops = stopSequence.length;
-  if (numStops <= 1) return [startSec];
-  const cumDist = [0];
-  let totalDist = 0;
-  for (let i = 1; i < numStops; i++) {
-    const prev = stopCoords.get(stopSequence[i - 1].stopId);
-    const curr = stopCoords.get(stopSequence[i].stopId);
-    if (prev && curr) {
-      totalDist += haversineMeters(prev.lat, prev.lon, curr.lat, curr.lon);
-    } else {
-      totalDist += 400;
-    }
-    cumDist.push(totalDist);
-  }
-  const totalDurationSec = Math.round((totalDist / 1000 / avgSpeedKmh) * 3600);
-  const bounded = Math.max(numStops * 60, Math.min(numStops * 300, totalDurationSec));
-  const times = [];
-  for (let i = 0; i < numStops; i++) {
-    const fraction = totalDist > 0 ? cumDist[i] / totalDist : i / (numStops - 1);
-    times.push(startSec + Math.round(fraction * bounded));
-  }
-  return times;
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // Step 4: scrape + assemble
 // ──────────────────────────────────────────────────────────────────────────
@@ -275,9 +241,24 @@ const calendarTxt = [
 ].join('\n') + '\n';
 
 const tripLines = ['route_id,service_id,trip_id,trip_headsign,direction_id,shape_id'];
-const stLines = ['trip_id,arrival_time,departure_time,stop_id,stop_sequence'];
+const stLines = ['trip_id,arrival_time,departure_time,stop_id,stop_sequence,shape_dist_traveled'];
+
+const TIMING = buildCfg.timing;
 
 for (const s of allSchedules) {
+  // Resolve every stop on this pattern to its {lat, lon} once per
+  // schedule entry. Trips on the same pattern reuse this list.
+  const orderedStops = s.stopSequence
+    .map((st) => {
+      const c = stopCoords.get(st.stopId);
+      return c ? { stopId: st.stopId, lat: c.lat, lon: c.lon } : null;
+    })
+    .filter(Boolean);
+  if (orderedStops.length !== s.stopSequence.length) {
+    LOG(`  ⚠ ${s.routeId} dir=${s.dir} ${s.serviceId}: ${s.stopSequence.length - orderedStops.length} stop(s) missing coords`);
+  }
+  const shape = (s.shapeId && seed.shapesById.get(s.shapeId)) || [];
+
   for (let i = 0; i < s.departures.length; i++) {
     const depTime = s.departures[i];
     const tripId = `${s.routeId}_${s.dir}_${s.serviceId}_${i}_${depTime.replace(':', '')}`;
@@ -285,10 +266,18 @@ for (const s of allSchedules) {
     tripLines.push(`${s.routeId},${s.serviceId},${tripId},${safeHeadsign},${s.dir},${s.shapeId || ''}`);
 
     const startSec = timeToSeconds(depTime);
-    const stopTimes = interpolateStopTimes(startSec, s.stopSequence);
-    for (let k = 0; k < s.stopSequence.length; k++) {
-      const t = formatGtfsTime(stopTimes[k]);
-      stLines.push(`${tripId},${t},${t},${s.stopSequence[k].stopId},${k}`);
+    const { arrivals, departures, shapeDistTraveledM } = computeStopTimes({
+      startSec,
+      stops: orderedStops,
+      shape,
+      timing: TIMING,
+    });
+    for (let k = 0; k < orderedStops.length; k++) {
+      const a = formatGtfsTime(arrivals[k]);
+      const d = formatGtfsTime(departures[k]);
+      stLines.push(
+        `${tripId},${a},${d},${orderedStops[k].stopId},${k},${shapeDistTraveledM[k]}`,
+      );
     }
   }
 }

@@ -8,6 +8,15 @@
   "build": {
     "csvUrlPattern": "https://ctpcj.ro/orare/csv/orar_{routeShortName}_{serviceId}.csv",
     "serviceKeys": ["lv", "s", "d"],
-    "serviceIdMap": { "lv": "LV", "s": "S", "d": "D" }
+    "serviceIdMap": { "lv": "LV", "s": "S", "d": "D" },
+    "timing": {
+      "speedKmh": { "peak": 14, "offpeak": 22, "night": 28 },
+      "peakWindows": [
+        { "from": "07:00", "to": "09:30" },
+        { "from": "16:00", "to": "19:00" }
+      ],
+      "nightWindow": { "from": "22:30", "to": "05:30" },
+      "intermediateDwellSec": 20
+    }
   }
 }

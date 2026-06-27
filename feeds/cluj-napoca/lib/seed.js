@@ -48,6 +48,36 @@ export async function loadSeed(source) {
   const tripsRows = parseCsv(readFileSync(join(seedDir, 'trips.txt'), 'utf8'));
   const stopTimesRows = parseCsv(readFileSync(join(seedDir, 'stop_times.txt'), 'utf8'));
 
+  // shapes.txt is optional per GTFS, but the Cluj-Napoca Transitous
+  // mirror always ships it. When present we group it by shape_id so
+  // the build step can project each trip's stops onto its polyline
+  // (replaces straight-line haversine for stop-to-stop distance).
+  let shapesById = new Map();
+  try {
+    statSync(join(seedDir, 'shapes.txt'));
+    const shapesRows = parseCsv(readFileSync(join(seedDir, 'shapes.txt'), 'utf8'));
+    const byId = new Map();
+    for (const row of shapesRows) {
+      const id = row.shape_id;
+      if (!id) continue;
+      const lat = parseFloat(row.shape_pt_lat);
+      const lon = parseFloat(row.shape_pt_lon);
+      const seq = parseInt(row.shape_pt_sequence, 10);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(seq)) continue;
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id).push({ lat, lon, seq });
+    }
+    for (const arr of byId.values()) {
+      arr.sort((a, b) => a.seq - b.seq);
+      // Strip the helper `seq` field — consumers only need lat/lon.
+      for (const p of arr) delete p.seq;
+    }
+    shapesById = byId;
+  } catch {
+    // No shapes.txt in seed — leave shapesById empty and let the
+    // build fall back to haversine.
+  }
+
   const routes = routesRows.map((r) => ({
     routeId: r.route_id,
     shortName: r.route_short_name,
@@ -83,5 +113,5 @@ export async function loadSeed(source) {
 
   console.log(`[seed] parsed: ${routes.length} routes, ${stops.length} stops, ${trips.length} trips, ${stopTimesRows.length} stop_times`);
 
-  return { seedDir, agencyTxt, routes, stops, trips, stopTimes, optional: OPTIONAL };
+  return { seedDir, agencyTxt, routes, stops, trips, stopTimes, shapesById, optional: OPTIONAL };
 }
