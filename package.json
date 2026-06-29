@@ -3,7 +3,7 @@
   "version": "0.2.0-m1",
   "private": true,
   "type": "module",
-  "description": "Multi-feed GTFS publisher for the neary v2 PWA (Transitous-aligned, supports remote GTFS sources)",
+  "description": "App-side GTFS → SQLite + feeds.json registry for the neary PWA",
   "scripts": {
     "pipeline": "node src/pipeline/build-all.js",
     "test": "vitest --run --passWithNoTests",

@@ -8,16 +8,16 @@
 git checkout -b <type>/<short-description>
 # work, commit
 git push -u origin <branch>
-gh pr create --fill          # opens a PR with commit msg as body
+gh pr create --fill
 gh pr merge --squash --delete-branch
 ```
 
-PR merge to `main` (and pushes to `main` more generally) auto-triggers
-the daily pipeline via `.github/workflows/daily.yml`. Docs-only PRs
-(`README.md`, `DEVELOPMENT.md`, `.gitignore`) are excluded via
-`paths-ignore` to avoid pointless rebuilds.
+Push to `main` (PR merge or direct) auto-triggers the pipeline via
+[`.github/workflows/daily.yml`](.github/workflows/daily.yml). Docs-only
+PRs (`**/*.md`, `.gitignore`, `LICENSE`) are excluded via `paths-ignore`
+so README edits don't churn the `binaries` branch.
 
-Branch protection settings:
+Branch protection:
 - PR required, 0 approvals (solo-dev friendly)
 - Linear history (squash/rebase only)
 - No force-push, no branch deletion
@@ -26,10 +26,10 @@ Branch protection settings:
 ## Prerequisites
 
 - Node.js 24+
-- `unzip` on PATH (every CI runner has it; macOS/Linux do too)
+- `unzip` on PATH (every CI runner has it; macOS/Linux too)
 
 No API keys needed — the pipeline only hits `api.transitous.org` and
-the upstream URLs declared in per-feed `config.json` files.
+whatever URLs are declared in per-feed `config.json` files.
 
 ## Setup
 
@@ -40,65 +40,83 @@ npm install
 ## Commands
 
 ```bash
-npm run pipeline   # full daily build → outputs/
-npm test           # vitest --run
+npm run pipeline   # full build → outputs/
+npm test           # vitest --run --passWithNoTests
 npm run lint
 ```
 
-Pipeline anatomy lives in [README.md](README.md#pipeline) — no need to
-duplicate the diagram here.
+Pipeline anatomy lives in [`src/pipeline/README.md`](src/pipeline/README.md).
 
 ## Adding a feed
 
-Single source of truth: `countries.json` `include[]`.
+Single source of truth: [`countries.json`](countries.json) `include[]`.
+Per-feed config files are optional overlays.
 
-### Plain Transitous mirror (default)
+### Default: plain Transitous mirror
 
-1. Add the country's ISO code to `countries.json` `countries[]` (if not
-   already present).
-2. Find the Transitous source name at
+1. Add the country's ISO code to `countries.json` `countries[]` if not
+   already present.
+2. Find the source name at
    `https://raw.githubusercontent.com/public-transport/transitous/main/feeds/<iso>.json`.
-   Confirm `https://api.transitous.org/gtfs/<iso>_<name>.gtfs.zip` returns 200.
+   Confirm `https://api.transitous.org/gtfs/<iso>_<name>.gtfs.zip`
+   returns 200.
 3. Add the name to `countries.json` `include[]`.
-4. Run `npm run pipeline` locally; confirm `outputs/feeds.json`
-   validates and the per-feed `.sqlite3.gz` opens
-   (`sqlite3 outputs/<id>.sqlite3 'SELECT COUNT(*) FROM trips'`).
+4. `npm run pipeline` locally; confirm `outputs/feeds.json` validates
+   and `outputs/<id>.sqlite3.gz` opens
+   (`sqlite3 <(gunzip -c outputs/<id>.sqlite3.gz) 'SELECT COUNT(*) FROM trips'`).
 
-### Remote-sourced feed (sister-repo zip)
+That's it — no `feeds/<id>/` needed for a plain mirror.
 
-Use when the Transitous mirror is stale and a separate repo produces a
-better GTFS zip for that operator (e.g.
-[`cluj-napoca-gtfs-adapter`](https://github.com/ciotlosm/cluj-napoca-gtfs-adapter)
-reconciles three sources for CTP Cluj).
+### Overlay app-side metadata or a different source
 
-1. Do steps 1–3 above so the Transitous source is in `include[]`.
-2. Create `feeds/<your-id>/config.json` (directory name = feed id
-   unless `id` overrides). See
-   [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json)
-   for a complete example. Required fields:
+Create `feeds/<id>/config.json` when you need to:
 
-   ```json
-   {
-     "enhances": "<TransitousName>",
-     "source": {
-       "type": "remote",
-       "publisher": "<who built the upstream zip>",
-       "url": "https://.../the-feed.gtfs.zip"
-     },
-     "license": { "attribution_text": "..." }
-   }
-   ```
+- Swap the source for a sister-repo zip (`source.type=remote`)
+- Provide / override realtime URLs (the MDB-resolver default may be
+  missing or wrong)
+- Add a `tranzy.agency_id` mapping so the app's optional Tranzy
+  augmentation works
+- Override the inferred license text or attribution URL
 
-   Optional fields you can overlay: `id`, `name`, `country`, `region`,
-   `timezone`, `languages`, `realtime`, `tranzy`, and a `smoke` block
-   (`expectedPublisher`, `tripIdPattern`) that runs on every fetched
-   zip and fails the build on contract violation.
+Worked example: [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json).
 
-3. Orphan overrides (a `feeds/<id>/` whose `enhances` doesn't match any
-   `include[]` entry) print a warning and produce nothing.
+Minimum shape:
+
+```json
+{
+  "enhances": "<TransitousName>",
+  "license": { "attribution_text": "..." }
+}
+```
+
+To use a sister-repo zip instead of Transitous, add:
+
+```json
+{
+  "enhances": "<TransitousName>",
+  "source": {
+    "type": "remote",
+    "publisher": "<who built the upstream zip>",
+    "url": "https://.../the-feed.gtfs.zip"
+  },
+  "license": { "attribution_text": "..." },
+  "smoke": {
+    "expectedPublisher": "<must match feed_info.txt feed_publisher_name>",
+    "tripIdPattern": "^...$"
+  }
+}
+```
+
+Other optional overlay fields: `id`, `name`, `country`, `region`,
+`timezone`, `languages`, `realtime`, `tranzy`. Anything you don't set
+inherits from the Transitous-derived base.
+
+Orphan overrides (a `feeds/<id>/` whose `enhances` doesn't match any
+`include[]` entry) print a warning and produce nothing.
 
 ## CI
 
-`.github/workflows/daily.yml` runs nightly (00:30 UTC) and on
-`workflow_dispatch`, targeting the `binaries` branch. App consumes from
+[`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs at
+00:30 UTC, on `workflow_dispatch`, and on every push to `main`,
+targeting the `binaries` branch. The app reads from
 `https://cdn.jsdelivr.net/gh/ciotlosm/neary-gtfs@binaries/feeds.json`.

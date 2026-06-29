@@ -13,7 +13,7 @@
  *
  * Output layout (under `outputs/`):
  *   outputs/feeds.json
- *   outputs/feeds/<id>.sqlite3.gz
+ *   outputs/<id>.sqlite3.gz
  *
  * Publish: .github/workflows/daily.yml pushes outputs/ to binaries.
  *
