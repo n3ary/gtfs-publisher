@@ -64,18 +64,31 @@ jobs:
           cp -r outputs/* "$DIR/"
           cd "$DIR"
 
-          # Prune orphan files in feeds/ that the new feeds.json no longer
-          # references. Without this, files dropped from publish policy
-          # (e.g. mirror .gtfs.zips after commit d5773bb) linger forever
-          # on the binaries branch. Single source of truth: feeds.json.
-          EXPECTED=$(jq -r '.feeds[] | (.files.gtfs_zip, .files.sqlite_gz) | select(.)' feeds.json | sort -u)
-          for f in feeds/*; do
+          # Migration: lift any reused .sqlite3.gz out of the legacy
+          # feeds/ subdirectory so it survives the prune below. (The
+          # build script's ETag-reuse path skips re-emitting these,
+          # assuming the previous publish is still around.)
+          if [ -d feeds ]; then
+            for f in feeds/*.sqlite3.gz; do
+              [ -e "$f" ] || continue
+              mv -n "$f" "$(basename "$f")"
+            done
+          fi
+
+          # Prune anything not referenced by the new feeds.json. Single
+          # source of truth: feeds.json `files.sqlite_gz`. Walks both the
+          # current flat layout and the legacy `feeds/` subdirectory so
+          # one publish cycle is enough to delete old paths.
+          EXPECTED=$(jq -r '.feeds[] | .files.sqlite_gz | select(.)' feeds.json | sort -u)
+          for f in *.sqlite3.gz feeds/*; do
             [ -e "$f" ] || continue
             if ! printf '%s\n' "$EXPECTED" | grep -qxF "$f"; then
               echo "[publish] pruning orphan: $f"
-              rm -f "$f"
+              rm -rf "$f"
             fi
           done
+          # Drop the legacy directory once it's empty.
+          [ -d feeds ] && rmdir feeds 2>/dev/null || true
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

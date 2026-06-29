@@ -61,11 +61,13 @@ export function deriveBbox(zipPath) {
   // ---- agency.txt → agencies[] + timezone ----
   const agencyCsv = readEntry(zipPath, 'agency.txt');
   const agencyRows = agencyCsv ? parseCsv(agencyCsv) : [];
-  const agencies = agencyRows.map((a) => ({
-    agency_id: a.agency_id || null,
-    agency_name: a.agency_name,
-    agency_url: a.agency_url || null,
-  }));
+  const agencies = agencyRows
+    .filter((a) => a.agency_name && a.agency_name.trim() !== '')
+    .map((a) => ({
+      agency_id: a.agency_id || null,
+      agency_name: a.agency_name,
+      agency_url: a.agency_url || null,
+    }));
   const timezone = agencyRows.find((a) => a.agency_timezone)?.agency_timezone ?? null;
 
   // ---- feed_info.txt → validity / timezone (optional) ----

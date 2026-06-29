@@ -3,6 +3,11 @@
  *
  * Validates against schemas/feeds.schema.json using Ajv's draft-2020 mode
  * so a malformed registry fails the build before publish.
+ *
+ * Per-entry shape:
+ *   - fresh entries: { feed, gtfs, sqlite, bbox, center, agencies, timezone,
+ *                      validity, upstreamEtag }
+ *   - reused entries: { reused: true, prevEntry: <previous feeds.json entry> }
  */
 
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -16,11 +21,21 @@ const ROOT = join(__dirname, '..', '..');
 const OUTPUTS = join(ROOT, 'outputs');
 const SCHEMA_PATH = join(ROOT, 'schemas', 'feeds.schema.json');
 
-/**
- * @param {Array<object>} feedEntries - either fresh entries
- *   { feed, gtfs, sqlite, bbox, center, agencies, timezone, validity, upstreamEtag }
- *   or reused entries { reused: true, prevEntry: <previous feeds.json entry> }
- */
+function stripLegacyFields(prevEntry) {
+  const { files, size_bytes, source, ...rest } = prevEntry;
+  const cleanedFiles = files
+    ? Object.fromEntries(
+        Object.entries(files)
+          .filter(([k]) => k !== 'gtfs_zip')
+          // Strip legacy `feeds/` prefix — we now publish at the binaries root.
+          .map(([k, v]) => [k, typeof v === 'string' ? v.replace(/^feeds\//, '') : v]),
+      )
+    : files;
+  const cleanedSizes = size_bytes ? Object.fromEntries(Object.entries(size_bytes).filter(([k]) => k !== 'gtfs_zip')) : size_bytes;
+  const cleanedSource = source ? Object.fromEntries(Object.entries(source).filter(([k]) => k !== 'content_hash')) : source;
+  return { ...rest, files: cleanedFiles, size_bytes: cleanedSizes, source: cleanedSource };
+}
+
 export function makeAppRegistry(feedEntries) {
   const generatedAt = new Date().toISOString();
 
@@ -28,10 +43,12 @@ export function makeAppRegistry(feedEntries) {
     version: generatedAt,
     generated_at: generatedAt,
     feeds: feedEntries.map((e) => {
-      // Reuse path: pass the previous entry through untouched. Keeping
-      // its original generated_at is intentional — it reflects when the
+      // Reuse path: pass the previous entry through, stripping fields
+      // that older schema versions allowed but the current one rejects
+      // (legacy `gtfs_zip` / `content_hash` from before remote-source-type).
+      // Keeping original generated_at is intentional — it reflects when the
       // underlying data was actually produced, not when we re-verified.
-      if (e.reused) return e.prevEntry;
+      if (e.reused) return stripLegacyFields(e.prevEntry);
 
       const f = e.feed;
       return {
@@ -47,17 +64,14 @@ export function makeAppRegistry(feedEntries) {
         source: {
           ...f.source,
           ...(e.upstreamEtag ? { upstream_etag: e.upstreamEtag } : {}),
-          ...(e.contentHash ? { content_hash: e.contentHash } : {}),
         },
         files: {
-          gtfs_zip: e.gtfs.localPath ? `feeds/${f.id}.gtfs.zip` : null,
-          sqlite_gz: e.sqlite ? `feeds/${f.id}.sqlite3.gz` : null,
+          sqlite_gz: e.sqlite ? `${f.id}.sqlite3.gz` : null,
         },
         size_bytes: {
-          gtfs_zip: e.gtfs.sizeBytes,
           sqlite_gz: e.sqlite ? e.sqlite.sizeBytes : null,
         },
-        hash: e.sqlite?.hash ?? e.gtfs.hash ?? null,
+        hash: e.sqlite?.hash ?? null,
         generated_at: generatedAt,
         valid_from: e.validity?.from ?? null,
         valid_until: e.validity?.until ?? null,

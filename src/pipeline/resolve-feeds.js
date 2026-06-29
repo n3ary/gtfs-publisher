@@ -5,15 +5,16 @@
  * source names to publish. Each entry becomes either:
  *
  *   - a **plain mirror** of Transitous's resolved zip (default), OR
- *   - an **enhanced build** if a `feeds/<id>/config.json` declares
- *     `enhances: "<TransitousName>"`. The Transitous zip is fetched and
- *     passed to the feed's `build.js` as the seed; the script mutates it
- *     and writes the final `outputs/feeds/<id>.gtfs.zip`.
+ *   - a **remote-sourced feed** if a `feeds/<id>/config.json` declares
+ *     `enhances: "<TransitousName>"` and a `source.type === "remote"`
+ *     pointing at a fully pre-built GTFS zip in another repo
+ *     (e.g. cluj-napoca-gtfs-adapter).
+ *
+ * The override file may also overlay realtime / tranzy / license / metadata
+ * fields on top of either kind of base.
  *
  * Local feed dirs without an `enhances` value (or whose `enhances`
- * doesn't match anything in `include[]`) are warned about and skipped —
- * the model is: include[] decides what to publish, feeds/<id>/ decides
- * how to enhance.
+ * doesn't match anything in `include[]`) are warned about and skipped.
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -31,10 +32,10 @@ const TRANSITOUS_RAW = 'https://raw.githubusercontent.com/public-transport/trans
 const TRANSITOUS_GTFS_BASE = 'https://api.transitous.org/gtfs';
 
 // ───────────────────────────────────────────────────────────────────────────
-// Local enhancement layers (auto-discovered from feeds/<id>/config.json)
+// Per-feed overrides (auto-discovered from feeds/<id>/config.json)
 // ───────────────────────────────────────────────────────────────────────────
 
-function loadEnhancers() {
+function loadOverrides() {
   if (!existsSync(FEEDS_DIR)) return new Map();
   const byTransitousName = new Map();
   for (const entry of readdirSync(FEEDS_DIR, { withFileTypes: true })) {
@@ -64,11 +65,11 @@ function defaultSlug(name) {
 /**
  * Build a feed object from a Transitous source.
  *
- * Strategy: build the Transitous-derived base once, then if an enhancer
+ * Strategy: build the Transitous-derived base once, then if an override
  * is present, overlay only the fields it explicitly sets — single source
  * of truth for "what fields exist" (the base).
  */
-function projectFeed(iso, raw, enhancer, mdbRealtime) {
+function projectFeed(iso, raw, override, mdbRealtime) {
   if (!raw.name) return { skip: 'missing name' };
   if (!['http', 'transitland-atlas', 'mobility-database'].includes(raw.type)) {
     return { skip: `unsupported source type: ${raw.type}` };
@@ -99,25 +100,37 @@ function projectFeed(iso, raw, enhancer, mdbRealtime) {
     },
   };
 
-  if (!enhancer) return { feed: base };
+  if (!override) return { feed: base };
 
-  // Overlay enhancer fields. Each one is "??" — config supplies wins,
-  // otherwise inherit from Transitous base.
-  const c = enhancer.cfg;
+  const c = override.cfg;
+
+  // The only non-transitous source type currently supported is "remote".
+  // Adding a new type would mean adding a new branch in fetch-gtfs.js.
+  let source = base.source;
+  if (c.source) {
+    if (c.source.type !== 'remote') {
+      return { skip: `unknown source.type "${c.source.type}" (expected "remote")` };
+    }
+    if (!c.source.url) {
+      return { skip: 'source.type=remote but no source.url' };
+    }
+    source = {
+      type: 'remote',
+      publisher: c.source.publisher ?? `remote (${new URL(c.source.url).hostname})`,
+      upstream_url: c.source.url,
+    };
+  }
+
   return {
     feed: {
       ...base,
-      id: c.id ?? enhancer.dir,
+      id: c.id ?? override.dir,
       name: c.name ?? base.name,
       country: c.country ?? base.country,
       region: c.region ?? null,
       timezone: c.timezone ?? null,
       languages: c.languages ?? [],
-      source: {
-        type: 'build',
-        publisher: 'neary-gtfs',
-        upstream_url: `${TRANSITOUS_GTFS_BASE}/${iso.toLowerCase()}_${encodeURIComponent(raw.name)}.gtfs.zip`,
-      },
+      source,
       realtime: c.realtime ?? mdbRealtime,
       tranzy: c.tranzy ?? null,
       license: {
@@ -125,7 +138,7 @@ function projectFeed(iso, raw, enhancer, mdbRealtime) {
         attribution_text: c.license?.attribution_text ?? base.license.attribution_text,
         attribution_url: c.license?.attribution_url ?? base.license.attribution_url,
       },
-      _enhances: { iso, transitousName: raw.name, feedDir: enhancer.dir },
+      _smoke: c.smoke ?? null,
     },
   };
 }
@@ -136,11 +149,11 @@ export async function resolveFeeds() {
   const config = JSON.parse(readFileSync(join(ROOT, 'countries.json'), 'utf8'));
   const countries = config.countries ?? [];
   const includeWhitelist = new Set(config.include ?? []);
-  const enhancers = loadEnhancers();
+  const overrides = loadOverrides();
 
   const feeds = [];
   const seenIds = new Set();
-  const matchedEnhancers = new Set();
+  const matchedOverrides = new Set();
 
   for (const iso of countries) {
     let payload;
@@ -156,29 +169,28 @@ export async function resolveFeeds() {
       // RT siblings are consumed by resolveRealtimeForName below, not
       // emitted as standalone feeds.
       if (raw.spec === 'gtfs-rt') continue;
-      const enhancer = enhancers.get(raw.name);
+      const override = overrides.get(raw.name);
       const mdbRealtime = await resolveRealtimeForName(sources, raw.name);
-      const projected = projectFeed(iso, raw, enhancer, mdbRealtime);
+      const projected = projectFeed(iso, raw, override, mdbRealtime);
       if (projected.skip) {
         console.warn(`[resolve-feeds] ${iso}/${raw.name}: skipped (${projected.skip})`);
         continue;
       }
       if (seenIds.has(projected.feed.id)) continue;
       seenIds.add(projected.feed.id);
-      if (enhancer) matchedEnhancers.add(raw.name);
+      if (override) matchedOverrides.add(raw.name);
       feeds.push(projected.feed);
     }
   }
 
-  // Warn about orphan enhancers — local dirs with enhances:X but X not in include[]
-  for (const [name, enh] of enhancers) {
-    if (!matchedEnhancers.has(name)) {
-      console.warn(`[resolve-feeds] feeds/${enh.dir}/ enhances "${name}" but that name is not in countries.json include[] — feed will not be published.`);
+  // Warn about orphan overrides — local dirs with enhances:X but X not in include[]
+  for (const [name, ov] of overrides) {
+    if (!matchedOverrides.has(name)) {
+      console.warn(`[resolve-feeds] feeds/${ov.dir}/ enhances "${name}" but that name is not in countries.json include[] — feed will not be published.`);
     }
   }
 
-  console.log(`[resolve-feeds] ${feeds.length} feed(s): ${feeds.map((f) => `${f.id}${f._enhances ? '*' : ''}`).join(', ')}  (* = locally enhanced)`);
+  const tag = (f) => f.source.type === 'remote' ? '*' : '';
+  console.log(`[resolve-feeds] ${feeds.length} feed(s): ${feeds.map((f) => `${f.id}${tag(f)}`).join(', ')}  (* = remote source)`);
   return feeds;
 }
-
-

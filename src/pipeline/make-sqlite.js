@@ -6,7 +6,7 @@
  *
  * Pipeline contract:
  *   - Input: a local .zip path passed by fetch-gtfs.js (no download)
- *   - Output: outputs/feeds/<feedId>.sqlite3.gz (raw .sqlite3 transient)
+ *   - Output: outputs/<feedId>.sqlite3.gz (raw .sqlite3 transient)
  *   - No manifest written — feeds.json carries all the metadata
  *
  * Returns: { localPath, sizeBytes } for the .sqlite3.gz file.
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';import { createHash } from 'node:crypto';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
-const OUTPUTS = join(ROOT, 'outputs', 'feeds');
+const OUTPUTS = join(ROOT, 'outputs');
 
 // ----- GTFS table schema (must match what the app's worker expects) ----
 

@@ -1,22 +1,16 @@
 {
   "enhances": "Cluj-Napoca",
-  "tranzy": { "agency_id": "2" },
+  "source": {
+    "type": "remote",
+    "publisher": "cluj-napoca-gtfs-adapter",
+    "url": "https://raw.githubusercontent.com/ciotlosm/cluj-napoca-gtfs-adapter/binaries/cluj-napoca.gtfs.zip"
+  },
   "license": {
     "attribution_text": "© Compania de Transport Public Cluj-Napoca",
     "attribution_url": "https://www.ctpcluj.ro/"
   },
-  "build": {
-    "csvUrlPattern": "https://ctpcj.ro/orare/csv/orar_{routeShortName}_{serviceId}.csv",
-    "serviceKeys": ["lv", "s", "d"],
-    "serviceIdMap": { "lv": "LV", "s": "S", "d": "D" },
-    "timing": {
-      "speedKmh": { "peak": 14, "offpeak": 22, "night": 28 },
-      "peakWindows": [
-        { "from": "07:00", "to": "09:30" },
-        { "from": "16:00", "to": "19:00" }
-      ],
-      "nightWindow": { "from": "22:30", "to": "05:30" },
-      "intermediateDwellSec": 20
-    }
+  "smoke": {
+    "expectedPublisher": "cluj-napoca-gtfs-adapter",
+    "tripIdPattern": "^[A-Za-z0-9]+_[01]_[A-Z]+(?:_FREQ)?_(?:\\d{4}|NT\\d{3,})$"
   }
 }

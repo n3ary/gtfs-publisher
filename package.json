@@ -3,11 +3,10 @@
   "version": "0.2.0-m1",
   "private": true,
   "type": "module",
-  "description": "Multi-feed GTFS publisher for the neary v2 PWA (Transitous-aligned, with CTP Cluj enhancement)",
+  "description": "Multi-feed GTFS publisher for the neary v2 PWA (Transitous-aligned, supports remote GTFS sources)",
   "scripts": {
     "pipeline": "node src/pipeline/build-all.js",
-    "build:cluj-napoca": "node feeds/cluj-napoca/build.js",
-    "test": "vitest --run",
+    "test": "vitest --run --passWithNoTests",
     "lint": "eslint src/ feeds/"
   },
   "engines": {

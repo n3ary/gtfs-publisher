@@ -3,18 +3,22 @@
 /**
  * build-all.js — daily orchestrator.
  *
- *   1. resolve-feeds       — what are we building today?
- *   2. for each feed: fetch-gtfs   (build locally or download upstream)
+ *   1. resolve-feeds       — what are we publishing today?
+ *   2. for each feed: fetch-gtfs   (download from upstream URL)
+ *                     validate     (remote only — light spec-shape check)
+ *                     smoke        (remote only — per-feed contract check)
  *                     derive-bbox  (read stops/agency/feed_info.txt)
  *                     make-sqlite  (gtfs.zip → sqlite3.gz)
  *   3. make-app-registry → outputs/feeds.json (schema-validated)
  *
  * Output layout (under `outputs/`):
  *   outputs/feeds.json
- *   outputs/feeds/<id>.gtfs.zip
  *   outputs/feeds/<id>.sqlite3.gz
  *
  * Publish: .github/workflows/daily.yml pushes outputs/ to binaries.
+ *
+ * Note: the .gtfs.zip is unlinked after make-sqlite — consumers that
+ * want the raw zip fetch it from the upstream URL directly.
  */
 
 import { resolveFeeds } from './resolve-feeds.js';
@@ -23,8 +27,8 @@ import { deriveBbox } from './derive-bbox.js';
 import { makeSqlite } from './make-sqlite.js';
 import { makeAppRegistry } from './make-app-registry.js';
 import { validate } from './validate.js';
+import { smokeTestRemote } from './smoke-remote.js';
 import { UA } from './lib/http.js';
-import { stableZipContentHash } from './lib/zip-hash.js';
 
 import { existsSync, unlinkSync } from 'node:fs';
 
@@ -34,11 +38,6 @@ const PREV_REGISTRY_URL = 'https://raw.githubusercontent.com/ciotlosm/neary-gtfs
  * Fetch the previously-published feeds.json from the live CDN. Returns
  * a Map<id, prevEntry> so we can check whether an upstream zip changed
  * since last run and skip rebuilding when it didn't.
- *
- * Failure modes (return empty map, fall back to full build):
- *   - First-ever build, no `binaries` branch yet
- *   - jsDelivr edge cache miss + GitHub upstream hiccup
- *   - Network down in CI
  */
 async function fetchPreviousRegistry() {
   try {
@@ -78,56 +77,38 @@ async function main() {
   for (const feed of feeds) {
     console.log(`\n=== ${feed.id} (${feed.source.type}) ===`);
 
-    // Mirror-reuse path: if upstream ETag is unchanged AND we already
-    // shipped a sqlite_gz for this feed, skip the whole rebuild and
-    // pass through the previous registry entry unchanged.
-    if (feed.source.type === 'transitous') {
-      const prevEntry = prev.get(feed.id);
-      const prevEtag = prevEntry?.source?.upstream_etag;
-      const currentEtag = await fetchUpstreamEtag(feed.source.upstream_url);
-      if (prevEtag && currentEtag === prevEtag && prevEntry.files?.sqlite_gz) {
-        console.log(`[build-all] ${feed.id}: upstream unchanged (ETag ${currentEtag}) — reusing previous build`);
-        entries.push({ reused: true, prevEntry });
-        reused++;
-        continue;
-      }
-      if (prevEtag) {
-        console.log(`[build-all] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag ?? 'null'}) — rebuilding`);
-      }
-      // Stash the freshly-fetched etag for the entry we're about to build.
-      feed._currentEtag = currentEtag;
+    // Skip-on-unchanged: if upstream ETag is unchanged AND we already
+    // shipped a sqlite_gz for this feed, pass the previous entry through.
+    const prevEntry = prev.get(feed.id);
+    const prevEtag = prevEntry?.source?.upstream_etag;
+    const currentEtag = await fetchUpstreamEtag(feed.source.upstream_url);
+    if (prevEtag && currentEtag === prevEtag && prevEntry.files?.sqlite_gz) {
+      console.log(`[build-all] ${feed.id}: upstream unchanged (ETag ${currentEtag}) — reusing previous build`);
+      entries.push({ reused: true, prevEntry });
+      reused++;
+      continue;
     }
+    if (prevEtag) {
+      console.log(`[build-all] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag ?? 'null'}) — rebuilding`);
+    }
+    feed._currentEtag = currentEtag;
 
     try {
       const gtfs = await fetchGtfs(feed);
-      if (feed.source.type === 'build') {
+
+      if (feed.source.type === 'remote') {
         const { warnings } = validate(gtfs.localPath);
         for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
-
-        // Skip-on-unchanged for local builds: compute a stable content
-        // hash of OUR built zip (ignores wrapper timestamps), compare
-        // with what we published last time. If identical → skip
-        // make-sqlite + publish, pass through previous registry entry.
-        // This is the build-feed analog of the mirror ETag check above.
-        const contentHash = stableZipContentHash(gtfs.localPath);
-        feed._contentHash = contentHash;
-        const prevEntry = prev.get(feed.id);
-        if (prevEntry?.source?.content_hash === contentHash && prevEntry.files?.sqlite_gz) {
-          console.log(`[build-all] ${feed.id}: build output unchanged (${contentHash.slice(0, 22)}…) — reusing previous`);
-          // Unlink the freshly-built .gtfs.zip; the previous one stays in `binaries`.
-          if (existsSync(gtfs.localPath)) unlinkSync(gtfs.localPath);
-          entries.push({ reused: true, prevEntry });
-          reused++;
-          continue;
-        }
-        if (prevEntry?.source?.content_hash) {
-          console.log(`[build-all] ${feed.id}: build output changed (${prevEntry.source.content_hash.slice(0, 22)}… → ${contentHash.slice(0, 22)}…) — publishing`);
-        }
+        const { checks } = smokeTestRemote(gtfs.localPath, feed._smoke);
+        for (const c of checks) console.log(`[smoke] ${feed.id}: OK ${c}`);
       }
+
       const meta = deriveBbox(gtfs.localPath);
       const sqlite = await makeSqlite(gtfs.localPath, feed.id);
 
-      if (feed.source.type === 'transitous' && existsSync(gtfs.localPath)) {
+      // The raw .gtfs.zip isn't republished — consumers fetch it from the
+      // upstream URL recorded in source.upstream_url.
+      if (existsSync(gtfs.localPath)) {
         unlinkSync(gtfs.localPath);
         gtfs.localPath = null;
         gtfs.sizeBytes = null;
@@ -137,11 +118,10 @@ async function main() {
       entries.push({
         feed, gtfs, sqlite,
         upstreamEtag: feed._currentEtag ?? null,
-        contentHash: feed._contentHash ?? null,
         ...meta,
       });
       console.log(
-        `[build-all] ${feed.id}: bbox=[${meta.bbox.minLat},${meta.bbox.minLon}]..[${meta.bbox.maxLat},${meta.bbox.maxLon}], gtfs=${gtfs.sizeBytes ? (gtfs.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'} sqlite_gz=${sqlite ? (sqlite.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}`,
+        `[build-all] ${feed.id}: bbox=[${meta.bbox.minLat},${meta.bbox.minLon}]..[${meta.bbox.maxLat},${meta.bbox.maxLon}], sqlite_gz=${sqlite ? (sqlite.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}`,
       );
     } catch (err) {
       console.error(`[build-all] ${feed.id}: FAILED — ${err.message}`);

@@ -1,8 +1,12 @@
 /**
- * validate.js — light spec-shape validator for GTFS .zips we BUILD.
+ * validate.js — light spec-shape validator for GTFS .zips we publish.
  *
- * Replaces the canonical Java validator for the cluj-napoca enhanced build.
- * Catches the bug classes our build is realistically capable of introducing:
+ * Runs on `source.type === 'remote'` feeds (the externally-built zips we
+ * pull from sister repos like cluj-napoca-gtfs-adapter). Transitous mirrors
+ * are trusted to upstream validation.
+ *
+ * Catches the bug classes a sister-repo build is realistically capable of
+ * introducing:
  *
  *   - missing required file
  *   - missing required column in a header
@@ -15,9 +19,7 @@
  *   - non-monotonic stop_sequence within a trip
  *
  * Does NOT catch subtle issues the canonical validator does (timezone
- * format quirks, fare/transfer/pathway consistency, etc.). Acceptable
- * for our use case — we only modify calendar/trips/stop_times/feed_info,
- * the rest passes through from Transitous's already-validated seed.
+ * format quirks, fare/transfer/pathway consistency, etc.).
  *
  * Usage: `validate(zipPath)` throws on first ERROR; logs warnings.
  */
