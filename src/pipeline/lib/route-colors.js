@@ -51,6 +51,12 @@ const ANCHOR_COLOR = 'F3513C';
 // different colors" threshold.
 const OKLAB_DISTINCT_THRESHOLD = 0.15;
 
+// Max OKLab distance for two route colors to be treated as the same
+// network-color "family". Tighter than DISTINCT so near-duplicate hues
+// (e.g. three slightly-different blues painted on night routes) combine
+// into a single cluster instead of each casting a singleton vote.
+const OKLAB_CLUSTER_THRESHOLD = 0.10;
+
 /** For each `route_type`, find the most-frequent non-placeholder color
  *  in the feed. Returns Map<typeString, color>. Types whose routes are
  *  all placeholder/missing/invalid are omitted — callers can seed
@@ -236,6 +242,47 @@ export function resolveModalCollisions(typeTopColors, routeCountAtModal, allRout
 }
 
 /**
+ * Greedy single-link clustering of hex colors by OKLab distance. Returns
+ * the largest cluster (by total route count) with a representative hex.
+ * Ties broken by lex-min color. Used so a network whose routes carry
+ * three near-identical blues plus one outlier still picks "blue" rather
+ * than a singleton.
+ */
+function pickModalCluster(colorCounts) {
+  const entries = [...colorCounts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
+  const clusters = [];
+  for (const [color, count] of entries) {
+    let target = null;
+    for (const cl of clusters) {
+      for (const existing of cl.members.keys()) {
+        if (oklabDistance(color, existing) < OKLAB_CLUSTER_THRESHOLD) {
+          target = cl;
+          break;
+        }
+      }
+      if (target) break;
+    }
+    if (target) {
+      target.members.set(color, count);
+      target.total += count;
+    } else {
+      clusters.push({ members: new Map([[color, count]]), total: count });
+    }
+  }
+  if (clusters.length === 0) return null;
+  clusters.sort((a, b) => b.total - a.total);
+  const winner = clusters[0];
+  // Representative: highest-count member, lex-min on ties.
+  let rep = '', repN = -1;
+  for (const [c, n] of winner.members) {
+    if (n > repN || (n === repN && c < rep)) { rep = c; repN = n; }
+  }
+  return { rep, total: winner.total };
+}
+
+/**
  * Compute a perceptually distinct hex color for each network, derived
  * from the modal route_color of routes in that network. Applies the
  * same OKLCh collision resolution used for route_type modals so every
@@ -248,32 +295,55 @@ export function resolveModalCollisions(typeTopColors, routeCountAtModal, allRout
  * @returns {Map<string, string>}  network_id → 6-char uppercase hex (no leading #)
  */
 export function computeNetworkColors(routeRows, routeNetworkRows, networkRows) {
-  // Build a lookup of valid route colors (normalized, non-placeholder).
-  const colorByRoute = new Map();
+  // Build per-route info (color + type). Drop placeholder/invalid colors.
+  const routeInfo = new Map();
   for (const r of routeRows ?? []) {
     const c = normalizeColor(r.route_color);
-    if (c && !KNOWN_PLACEHOLDER_COLORS.has(c)) colorByRoute.set(r.route_id, c);
-  }
-
-  // Count each color's occurrences per network.
-  const countsByNetwork = new Map(); // networkId → Map<color, count>
-  for (const rn of routeNetworkRows ?? []) {
-    const color = colorByRoute.get(rn.route_id);
-    if (!color) continue;
-    if (!countsByNetwork.has(rn.network_id)) countsByNetwork.set(rn.network_id, new Map());
-    const inner = countsByNetwork.get(rn.network_id);
-    inner.set(color, (inner.get(color) ?? 0) + 1);
-  }
-
-  // Modal color per network (most frequent).
-  const modalColors = new Map(); // networkId → color
-  const countAtModal = new Map(); // networkId → count at modal
-  for (const [netId, counts] of countsByNetwork) {
-    let best = '', bestN = 0;
-    for (const [color, n] of counts) {
-      if (n > bestN) { best = color; bestN = n; }
+    if (c && !KNOWN_PLACEHOLDER_COLORS.has(c)) {
+      routeInfo.set(r.route_id, { color: c, type: String(r.route_type ?? '') });
     }
-    if (best) { modalColors.set(netId, best); countAtModal.set(netId, bestN); }
+  }
+
+  // Per-route_type modal — used to filter out routes that carry no
+  // network-specific signal. A route whose color equals its type's modal
+  // is either organically the same as every other route of its mode, or
+  // was placeholder-substituted upstream (resolveRouteColor → 'placeholder').
+  // Either way it pulls the network chip toward the mode brand instead
+  // of the network's actual palette.
+  const typeTopColors = computeTypeTopColors(routeRows ?? []);
+
+  // Tally colors per network. countsByNetwork excludes type-modal routes;
+  // fallbackCounts keeps them for networks where the filter removes
+  // everything (e.g. a network that is 100% one mode at the mode's modal).
+  const countsByNetwork = new Map();
+  const fallbackCounts = new Map();
+  for (const rn of routeNetworkRows ?? []) {
+    const info = routeInfo.get(rn.route_id);
+    if (!info) continue;
+    const fb = fallbackCounts.get(rn.network_id) ?? new Map();
+    fb.set(info.color, (fb.get(info.color) ?? 0) + 1);
+    fallbackCounts.set(rn.network_id, fb);
+    if (info.color === typeTopColors.get(info.type)) continue;
+    const inner = countsByNetwork.get(rn.network_id) ?? new Map();
+    inner.set(info.color, (inner.get(info.color) ?? 0) + 1);
+    countsByNetwork.set(rn.network_id, inner);
+  }
+
+  // Modal *cluster* per network: group perceptually-similar colors so
+  // three near-identical blues outvote a single outlier rather than each
+  // contributing a singleton.
+  const modalColors = new Map();
+  const countAtModal = new Map();
+  const allNetIds = new Set([...countsByNetwork.keys(), ...fallbackCounts.keys()]);
+  for (const netId of allNetIds) {
+    let counts = countsByNetwork.get(netId);
+    if (!counts || counts.size === 0) counts = fallbackCounts.get(netId);
+    if (!counts || counts.size === 0) continue;
+    const winner = pickModalCluster(counts);
+    if (winner) {
+      modalColors.set(netId, winner.rep);
+      countAtModal.set(netId, winner.total);
+    }
   }
 
   // Seed networks with no usable route colors from the anchor.
