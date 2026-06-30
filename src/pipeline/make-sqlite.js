@@ -21,6 +21,8 @@ import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSyn
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';import { createHash } from 'node:crypto';
+
+import { resolveRouteColors } from './lib/route-colors.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
 const OUTPUTS = join(ROOT, 'outputs');
@@ -214,8 +216,20 @@ export async function makeSqlite(gtfsZipPath, feedId) {
     createSchema(db);
     const stats = {};
     for (const [tableName, spec] of Object.entries(SCHEMA)) {
-      const rows = await readCsvFromZip(zip, spec.file);
+      let rows = await readCsvFromZip(zip, spec.file);
       if (!rows) continue;
+      // Apply the route-color quirk fixer to routes.txt rows. Feeds
+      // already curated upstream (e.g. Cluj after its adapter) emit
+      // "no route_color fixes needed"; feeds with placeholders or
+      // cross-type modal collisions get substituted + skewed per
+      // src/pipeline/lib/route-colors.js.
+      if (tableName === 'routes') {
+        const result = resolveRouteColors(rows);
+        rows = result.rows;
+        for (const line of result.logs) {
+          console.log(`[make-sqlite] ${feedId}: routes — ${line}`);
+        }
+      }
       const n = insertRows(db, tableName, spec.columns, rows);
       stats[tableName] = n;
     }
