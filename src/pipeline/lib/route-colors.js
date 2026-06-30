@@ -1,13 +1,11 @@
 /**
  * Route-color quirk fixer for arbitrary GTFS feeds.
  *
- * Some feeds (Tranzy/CTP Cluj being the canonical example) publish
- * route_color values that carry almost no per-route signal — many
- * routes ship as #000 (a "no preference" sentinel), entire modes
- * share the same color, or the values aren't valid hex. This module
- * applies the same fixups the cluj-napoca-gtfs-adapter applies
- * upstream, generically, so every feed neary-gtfs ingests ends up
- * with curated route colors regardless of producer hygiene:
+ * Many feeds publish route_color values that carry little per-route
+ * signal — routes ship as #000 (a "no preference" sentinel), entire
+ * modes share the same color, or values aren't valid hex. This module
+ * normalizes those cases so every feed neary-gtfs ingests ends up
+ * with distinct, readable route colors regardless of producer hygiene:
  *
  *   1. Black/missing/invalid `route_color` → substituted with the
  *      per-type modal color (most-frequent valid color of that
@@ -22,15 +20,8 @@
  *   4. One-off route colors (a single route painted differently from
  *      its mode's modal) are preserved verbatim.
  *
- * Feeds that already arrive well-curated (e.g. Cluj after the
- * adapter) trigger no substitutions and no skews — the log line is
- * just "no fixes needed".
- *
- * Logic is a near-verbatim port of
- * `cluj-napoca-gtfs-adapter/src/assemble/merge/routes.js`. When that
- * code changes meaningfully, port it here too. Both copies are short
- * and testable; no shared dependency until divergence becomes a
- * problem.
+ * Feeds that already arrive well-curated trigger no substitutions and
+ * no skews — the log line is just "no fixes needed".
  */
 
 /** Normalize a color value to the GTFS-spec `Color` type: 6-char hex,
@@ -48,15 +39,11 @@ export function normalizeColor(raw) {
 // "No preference" sentinels some producers emit instead of leaving
 // route_color empty. Treated as missing and substituted with the type's
 // modal color downstream.
-const TRANZY_BLACK_SENTINELS = new Set(['000000']);
-const GENERIC_PLACEHOLDERS = new Set();
-const PLACEHOLDER_COLORS = new Set([...TRANZY_BLACK_SENTINELS, ...GENERIC_PLACEHOLDERS]);
+const KNOWN_PLACEHOLDER_COLORS = new Set(['000000']);
 
 // Anchor used when a route_type has no usable (non-placeholder) color
-// anywhere in the feed. Picked to match the modal Tranzy ships for CTP
-// Cluj's buses — so feeds without any color signal at all get a
-// recognizable default. The collision resolver below will skew other
-// types away from this anchor automatically.
+// anywhere in the feed. The collision resolver skews other types away
+// from this anchor automatically.
 const ANCHOR_COLOR = 'F3513C';
 
 // Minimum OKLab distance a skewed modal must keep from every special
@@ -73,7 +60,7 @@ export function computeTypeTopColors(rows) {
   for (const r of rows ?? []) {
     if (r.route_type == null || r.route_type === '') continue;
     const color = normalizeColor(r.route_color);
-    if (!color || PLACEHOLDER_COLORS.has(color)) continue;
+    if (!color || KNOWN_PLACEHOLDER_COLORS.has(color)) continue;
     const type = String(r.route_type);
     if (!counts.has(type)) counts.set(type, new Map());
     const inner = counts.get(type);
@@ -95,7 +82,7 @@ export function computeTypeTopColors(rows) {
  *  modal; non-placeholder values pass through normalized. */
 export function resolveRouteColor(rawColor, routeType, typeTopColors) {
   const normalized = normalizeColor(rawColor);
-  if (normalized && !PLACEHOLDER_COLORS.has(normalized)) {
+  if (normalized && !KNOWN_PLACEHOLDER_COLORS.has(normalized)) {
     return { color: normalized, substitutedFrom: null };
   }
   const typeTop = typeTopColors.get(routeType);
@@ -104,7 +91,7 @@ export function resolveRouteColor(rawColor, routeType, typeTopColors) {
   }
   return {
     color: typeTop,
-    substitutedFrom: PLACEHOLDER_COLORS.has(normalized) ? 'placeholder' : 'invalid',
+    substitutedFrom: KNOWN_PLACEHOLDER_COLORS.has(normalized) ? 'placeholder' : 'invalid',
   };
 }
 
@@ -248,6 +235,83 @@ export function resolveModalCollisions(typeTopColors, routeCountAtModal, allRout
   return skews;
 }
 
+/**
+ * Compute a perceptually distinct hex color for each network, derived
+ * from the modal route_color of routes in that network. Applies the
+ * same OKLCh collision resolution used for route_type modals so every
+ * chip reads at a distinct hue regardless of how many networks share
+ * their routes' dominant color.
+ *
+ * @param {Array} routeRows        routes.txt rows (route_id, route_color)
+ * @param {Array} routeNetworkRows route_networks.txt rows (route_id, network_id)
+ * @param {Array} networkRows      networks.txt rows (network_id)
+ * @returns {Map<string, string>}  network_id → 6-char uppercase hex (no leading #)
+ */
+export function computeNetworkColors(routeRows, routeNetworkRows, networkRows) {
+  // Build a lookup of valid route colors (normalized, non-placeholder).
+  const colorByRoute = new Map();
+  for (const r of routeRows ?? []) {
+    const c = normalizeColor(r.route_color);
+    if (c && !KNOWN_PLACEHOLDER_COLORS.has(c)) colorByRoute.set(r.route_id, c);
+  }
+
+  // Count each color's occurrences per network.
+  const countsByNetwork = new Map(); // networkId → Map<color, count>
+  for (const rn of routeNetworkRows ?? []) {
+    const color = colorByRoute.get(rn.route_id);
+    if (!color) continue;
+    if (!countsByNetwork.has(rn.network_id)) countsByNetwork.set(rn.network_id, new Map());
+    const inner = countsByNetwork.get(rn.network_id);
+    inner.set(color, (inner.get(color) ?? 0) + 1);
+  }
+
+  // Modal color per network (most frequent).
+  const modalColors = new Map(); // networkId → color
+  const countAtModal = new Map(); // networkId → count at modal
+  for (const [netId, counts] of countsByNetwork) {
+    let best = '', bestN = 0;
+    for (const [color, n] of counts) {
+      if (n > bestN) { best = color; bestN = n; }
+    }
+    if (best) { modalColors.set(netId, best); countAtModal.set(netId, bestN); }
+  }
+
+  // Seed networks with no usable route colors from the anchor.
+  for (const n of networkRows ?? []) {
+    if (!modalColors.has(n.network_id)) modalColors.set(n.network_id, ANCHOR_COLOR);
+  }
+
+  // Resolve collisions: ≥2 networks sharing the same modal get rotated.
+  const allColors = new Set(modalColors.values());
+  const byColor = new Map();
+  for (const [netId, color] of modalColors) {
+    if (!byColor.has(color)) byColor.set(color, []);
+    byColor.get(color).push(netId);
+  }
+  for (const [baseColor, group] of byColor) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => (countAtModal.get(b) ?? 0) - (countAtModal.get(a) ?? 0));
+    const step = 360 / group.length;
+    const forbidden = new Set([...allColors].filter((c) => c !== baseColor));
+    for (let i = 1; i < group.length; i++) {
+      const idealDeg = i * step;
+      const candidates = [idealDeg];
+      for (let off = 15; off <= 180; off += 15) candidates.push(idealDeg + off, idealDeg - off);
+      let newColor = rotateHueOklch(baseColor, idealDeg);
+      for (const deg of candidates) {
+        const c = rotateHueOklch(baseColor, deg);
+        const minDist = [...forbidden].reduce((mn, fc) => Math.min(mn, oklabDistance(c, fc)), Infinity);
+        if (minDist >= OKLAB_DISTINCT_THRESHOLD) { newColor = c; break; }
+      }
+      modalColors.set(group[i], newColor);
+      allColors.add(newColor);
+      forbidden.add(newColor);
+    }
+  }
+
+  return modalColors; // network_id → 6-char hex (uppercase, no #)
+}
+
 // Friendly labels for the most common route_type integers. Anything not
 // listed is shown as `type=<N>` in the log lines.
 const TYPE_LABELS = {
@@ -344,7 +408,7 @@ export function resolveRouteColors(rows) {
   };
   const placeholderBreakdown = renderBreakdown('placeholder');
   if (placeholderBreakdown) {
-    logs.push(`substituted placeholder route_color (000000 sentinel) with modal per-type color — ${placeholderBreakdown}`);
+    logs.push(`substituted placeholder route_color with modal per-type color — ${placeholderBreakdown}`);
   }
   const invalidBreakdown = renderBreakdown('invalid');
   if (invalidBreakdown) {

@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';import { createHash } from 'node:crypto';
 
-import { resolveRouteColors } from './lib/route-colors.js';
+import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
 const OUTPUTS = join(ROOT, 'outputs');
@@ -154,6 +154,7 @@ const SCHEMA = {
     columns: [
       ['network_id', 'TEXT PRIMARY KEY'],
       ['network_name', 'TEXT'],
+      ['network_color', 'TEXT'],
     ],
   },
   route_networks: {
@@ -193,6 +194,7 @@ function createSchema(db) {
       db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
     }
   }
+  db.exec(`CREATE TABLE _neary_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
   db.pragma('page_size = 4096');
 }
 
@@ -234,24 +236,55 @@ export async function makeSqlite(gtfsZipPath, feedId) {
   try {
     createSchema(db);
     const stats = {};
+
+    // Collected during the loop for post-processing.
+    let routeRows = null;
+    let networkRows = null;
+    let routeNetworkRows = null;
+
     for (const [tableName, spec] of Object.entries(SCHEMA)) {
       let rows = await readCsvFromZip(zip, spec.file);
       if (!rows) continue;
       // Apply the route-color quirk fixer to routes.txt rows. Feeds
-      // already curated upstream (e.g. Cluj after its adapter) emit
-      // "no route_color fixes needed"; feeds with placeholders or
-      // cross-type modal collisions get substituted + skewed per
-      // src/pipeline/lib/route-colors.js.
+      // already curated upstream emit "no route_color fixes needed";
+      // feeds with placeholders or cross-type modal collisions get
+      // substituted + skewed per src/pipeline/lib/route-colors.js.
       if (tableName === 'routes') {
         const result = resolveRouteColors(rows);
         rows = result.rows;
+        routeRows = rows;
         for (const line of result.logs) {
           console.log(`[make-sqlite] ${feedId}: routes — ${line}`);
         }
       }
+      if (tableName === 'networks') networkRows = rows;
+      if (tableName === 'route_networks') routeNetworkRows = rows;
       const n = insertRows(db, tableName, spec.columns, rows);
       stats[tableName] = n;
     }
+
+    // Compute and persist network chip colors. All color math lives here
+    // in the pipeline — the app reads the pre-computed value verbatim.
+    if (networkRows && networkRows.length > 0) {
+      const colors = computeNetworkColors(routeRows ?? [], routeNetworkRows ?? [], networkRows);
+      const updateColor = db.prepare('UPDATE networks SET network_color = ? WHERE network_id = ?');
+      db.transaction(() => {
+        for (const [netId, color] of colors) updateColor.run(color, netId);
+      })();
+      console.log(`[make-sqlite] ${feedId}: network colors — ${[...colors.entries()].map(([id, c]) => `${id}=#${c}`).join(', ')}`);
+    }
+
+    // Write per-feed config to _neary_config from the feed's config.json.
+    const configPath = join(ROOT, 'feeds', feedId, 'config.json');
+    if (existsSync(configPath)) {
+      const feedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+      if (feedConfig.timing) {
+        db.prepare('INSERT INTO _neary_config (key, value) VALUES (?, ?)')
+          .run('timing', JSON.stringify(feedConfig.timing));
+        console.log(`[make-sqlite] ${feedId}: wrote timing config to _neary_config`);
+      }
+    }
+
     console.log(`[make-sqlite] ${feedId}: ` +
       Object.entries(stats).map(([k, v]) => `${k}=${v}`).join(' '));
 

@@ -12,5 +12,14 @@
   "smoke": {
     "expectedPublisher": "cluj-napoca-gtfs-adapter",
     "tripIdPattern": "^[A-Za-z0-9]+_[01]_[A-Z]+(?:_FREQ)?_(?:\\d{4}|NT\\d{3,})$"
+  },
+  "timing": {
+    "speed_kmh": { "peak": 14, "offpeak": 22, "night": 28 },
+    "peak_windows": [
+      { "from": "07:00", "to": "09:30" },
+      { "from": "16:00", "to": "19:00" }
+    ],
+    "night_window": { "from": "22:30", "to": "05:30" },
+    "dwell_sec": 20
   }
 }
