@@ -149,6 +149,24 @@ const SCHEMA = {
       ['feed_version', 'TEXT'],
     ],
   },
+  networks: {
+    file: 'networks.txt',
+    columns: [
+      ['network_id', 'TEXT PRIMARY KEY'],
+      ['network_name', 'TEXT'],
+    ],
+  },
+  route_networks: {
+    file: 'route_networks.txt',
+    columns: [
+      ['network_id', 'TEXT'],
+      ['route_id', 'TEXT'],
+    ],
+    indexes: [
+      ['route_networks_network_idx', '(network_id)'],
+      ['route_networks_route_idx', '(route_id)'],
+    ],
+  },
 };
 
 async function readCsvFromZip(zip, filename) {
