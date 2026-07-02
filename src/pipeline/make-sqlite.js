@@ -16,7 +16,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { parse } from 'csv-parse/sync';
+import { parse } from 'csv-parse';
 import StreamZip from 'node-stream-zip';
 
 import { createGzip } from 'node:zlib';
@@ -89,20 +89,30 @@ const SCHEMA = {
       ['trips_shape_idx', '(shape_id)'],
     ],
   },
+  // stop_times is 60-90% of a national GTFS sqlite by size. Two knobs:
+  //   * Composite PK (trip_id, stop_sequence) is already the natural key,
+  //     so we can make the primary-key B-tree BE the table via
+  //     WITHOUT ROWID. That drops the implicit rowid column and folds
+  //     the previous `(trip_id, stop_sequence)` index into the primary
+  //     store — one less full-table B-tree on disk.
+  //   * INSERT OR IGNORE keeps the old dedupe behaviour: duplicate
+  //     (trip_id, stop_sequence) rows from misbehaving feeds get
+  //     dropped instead of aborting the batch transaction.
   stop_times: {
     file: 'stop_times.txt',
     columns: [
-      ['trip_id', 'TEXT'],
+      ['trip_id', 'TEXT NOT NULL'],
       ['arrival_time', 'TEXT'],
       ['departure_time', 'TEXT'],
       ['stop_id', 'TEXT'],
-      ['stop_sequence', 'INTEGER'],
+      ['stop_sequence', 'INTEGER NOT NULL'],
       ['pickup_type', 'INTEGER'],
       ['drop_off_type', 'INTEGER'],
       ['shape_dist_traveled', 'REAL'],
     ],
+    tableConstraints: ['PRIMARY KEY (trip_id, stop_sequence)'],
+    withoutRowid: true,
     indexes: [
-      ['stop_times_trip_seq_idx', '(trip_id, stop_sequence)'],
       ['stop_times_stop_idx', '(stop_id)'],
     ],
   },
@@ -173,43 +183,71 @@ const SCHEMA = {
   },
 };
 
-async function readCsvFromZip(zip, filename) {
+// GTFS `stop_times.txt` and `shapes.txt` routinely exceed 500 MB
+// uncompressed on national feeds. Node's max string length is
+// ~512 MB (v8 kMaxLength), so `buf.toString('utf8')` throws for
+// anything bigger; loading the parsed result into a single array
+// then blows up memory again. We stream from the zip via csv-parse
+// (async), yielding rows one at a time.
+async function entryExists(zip, filename) {
   try {
-    const buf = await zip.entryData(filename);
-    const text = buf.toString('utf8').replace(/^\uFEFF/, '');
-    return parse(text, {
-      columns: true,
-      skip_empty_lines: true,
-      relax_quotes: true,
-      relax_column_count: true,
-      trim: true,
-    });
+    return !!(await zip.entry(filename));
   } catch {
-    return null;
+    return false;
   }
+}
+
+const CSV_PARSE_OPTS = {
+  columns: true,
+  skip_empty_lines: true,
+  relax_quotes: true,
+  relax_column_count: true,
+  trim: true,
+  bom: true,
+};
+
+// GTFS spec-required files whose absence (or empty output after a
+// stream error) means the sqlite is unusable. We refuse to publish
+// an empty schedule rather than let a client fail an integrity check.
+const REQUIRED_TABLES = ['agency', 'stops', 'routes', 'trips', 'stop_times'];
+
+async function* streamCsvRows(zip, filename) {
+  const stream = await zip.stream(filename);
+  const parser = stream.pipe(parse(CSV_PARSE_OPTS));
+  for await (const row of parser) yield row;
+}
+
+// Small tables (routes, networks, route_networks) need to be held in
+// memory so post-processing (color resolution) can transform them
+// before insertion.
+async function collectCsvRows(zip, filename) {
+  const rows = [];
+  for await (const row of streamCsvRows(zip, filename)) rows.push(row);
+  return rows;
 }
 
 function createSchema(db) {
   for (const [tableName, spec] of Object.entries(SCHEMA)) {
-    const cols = spec.columns.map(([n, t]) => `${n} ${t}`).join(', ');
-    db.exec(`CREATE TABLE ${tableName} (${cols});`);
+    const cols = spec.columns.map(([n, t]) => `${n} ${t}`);
+    const constraints = spec.tableConstraints ?? [];
+    const body = [...cols, ...constraints].join(', ');
+    const opts = spec.withoutRowid ? ' WITHOUT ROWID' : '';
+    db.exec(`CREATE TABLE ${tableName} (${body})${opts};`);
     for (const [idxName, idxCols] of spec.indexes ?? []) {
       db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
     }
   }
   db.exec(`CREATE TABLE _neary_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
-  db.pragma('page_size = 4096');
 }
 
-function insertRows(db, tableName, columns, rows) {
-  if (!rows || rows.length === 0) return 0;
+function makeRowInserter(db, tableName, columns) {
   const colNames = columns.map(([n]) => n);
   const placeholders = colNames.map(() => '?').join(', ');
   // OR IGNORE: external feeds occasionally violate PK uniqueness (duplicate
   // stop_id rows for parent stations etc.); we drop dupes rather than error.
   const stmt = db.prepare(`INSERT OR IGNORE INTO ${tableName} (${colNames.join(', ')}) VALUES (${placeholders})`);
-  const txn = db.transaction((all) => {
-    for (const row of all) {
+  const insertBatch = db.transaction((batch) => {
+    for (const row of batch) {
       const values = colNames.map((c) => {
         const v = row[c];
         return v === undefined || v === '' ? null : v;
@@ -217,8 +255,46 @@ function insertRows(db, tableName, columns, rows) {
       stmt.run(values);
     }
   });
-  txn(rows);
+  return insertBatch;
+}
+
+function insertRows(db, tableName, columns, rows) {
+  if (!rows || rows.length === 0) return 0;
+  makeRowInserter(db, tableName, columns)(rows);
   return rows.length;
+}
+
+const INSERT_BATCH_SIZE = 5000;
+// Chatter cap so a national feed doesn't spam the log. Emit a
+// progress line every ~250k rows plus a final total.
+const PROGRESS_EVERY = 250_000;
+
+async function streamRowsIntoTable(db, tableName, columns, source, { feedId } = {}) {
+  const insertBatch = makeRowInserter(db, tableName, columns);
+  const started = Date.now();
+  let batch = [];
+  let total = 0;
+  let nextProgress = PROGRESS_EVERY;
+  const tag = feedId ? `[make-sqlite] ${feedId}` : '[make-sqlite]';
+  for await (const row of source) {
+    batch.push(row);
+    if (batch.length >= INSERT_BATCH_SIZE) {
+      insertBatch(batch);
+      total += batch.length;
+      batch = [];
+      if (total >= nextProgress) {
+        const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+        const rate = Math.round(total / Math.max(1, (Date.now() - started) / 1000));
+        console.log(`${tag}: ${tableName} — ${total.toLocaleString()} rows (${rate.toLocaleString()}/s, ${elapsed}s)`);
+        nextProgress += PROGRESS_EVERY;
+      }
+    }
+  }
+  if (batch.length > 0) {
+    insertBatch(batch);
+    total += batch.length;
+  }
+  return total;
 }
 
 /**
@@ -235,10 +311,28 @@ export async function makeSqlite(gtfsZipPath, feedId) {
 
   const zip = new StreamZip.async({ file: gtfsZipPath });
   const db = new Database(dbPath);
+  // page_size MUST be set before any DDL — SQLite ignores changes
+  // once the file has content. 8192 is chosen over the 4096 default
+  // because row-heavy tables (stop_times, shapes) pack denser at 8K.
+  db.pragma('page_size = 8192');
+  // Bulk-load pragmas. Durability doesn't matter here — the sqlite
+  // is rebuilt from the raw GTFS zip if the process dies mid-write.
+  // Disabling the journal + fsync avoids two things at national-feed
+  // scale: (a) the readonly-database errors we saw when the rollback
+  // journal creation/deletion cadence tripped over macOS APFS, and
+  // (b) the 5–10x throughput cost of syncing on every batch commit.
+  db.pragma('journal_mode = OFF');
+  db.pragma('synchronous = OFF');
+  db.pragma('temp_store = MEMORY');
 
   try {
     createSchema(db);
     const stats = {};
+
+    // Tables that need the full row set in memory before insertion because
+    // a post-processing step reads them (route-color quirk fixer, network
+    // color computation). All small in every feed we ship.
+    const BUFFERED = new Set(['routes', 'networks', 'route_networks']);
 
     // Collected during the loop for post-processing.
     let routeRows = null;
@@ -246,24 +340,46 @@ export async function makeSqlite(gtfsZipPath, feedId) {
     let routeNetworkRows = null;
 
     for (const [tableName, spec] of Object.entries(SCHEMA)) {
-      let rows = await readCsvFromZip(zip, spec.file);
-      if (!rows) continue;
-      // Apply the route-color quirk fixer to routes.txt rows. Feeds
-      // already curated upstream emit "no route_color fixes needed";
-      // feeds with placeholders or cross-type modal collisions get
-      // substituted + skewed per src/pipeline/lib/route-colors.js.
-      if (tableName === 'routes') {
-        const result = resolveRouteColors(rows);
-        rows = result.rows;
-        routeRows = rows;
-        for (const line of result.logs) {
-          console.log(`[make-sqlite] ${feedId}: routes — ${line}`);
+      if (!(await entryExists(zip, spec.file))) continue;
+
+      if (BUFFERED.has(tableName)) {
+        let rows = await collectCsvRows(zip, spec.file);
+        if (tableName === 'routes') {
+          const result = resolveRouteColors(rows);
+          rows = result.rows;
+          routeRows = rows;
+          for (const line of result.logs) {
+            console.log(`[make-sqlite] ${feedId}: routes — ${line}`);
+          }
+        } else if (tableName === 'networks') {
+          networkRows = rows;
+        } else if (tableName === 'route_networks') {
+          routeNetworkRows = rows;
         }
+        stats[tableName] = insertRows(db, tableName, spec.columns, rows);
+      } else {
+        // Stream: never materialise the whole file. Required for
+        // national feeds where stop_times.txt / shapes.txt exceed
+        // Node's max string length or would OOM the parser.
+        stats[tableName] = await streamRowsIntoTable(
+          db,
+          tableName,
+          spec.columns,
+          streamCsvRows(zip, spec.file),
+          { feedId },
+        );
       }
-      if (tableName === 'networks') networkRows = rows;
-      if (tableName === 'route_networks') routeNetworkRows = rows;
-      const n = insertRows(db, tableName, spec.columns, rows);
-      stats[tableName] = n;
+    }
+
+    // Fail loud if a required table came out empty. The producer
+    // MUST NOT ship a sqlite that would fail the client integrity
+    // check downstream — emitting nothing is safer than emitting
+    // a schedule that silently drops stop_times or trips.
+    const missing = REQUIRED_TABLES.filter((t) => !stats[t] || stats[t] === 0);
+    if (missing.length > 0) {
+      throw new Error(
+        `Required GTFS table(s) empty or missing for feed "${feedId}": ${missing.join(', ')}`,
+      );
     }
 
     // Compute and persist network chip colors. All color math lives here
