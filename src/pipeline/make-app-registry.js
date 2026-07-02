@@ -62,7 +62,6 @@ export function makeAppRegistry(feedEntries) {
         valid_from: e.validity?.from ?? null,
         valid_until: e.validity?.until ?? null,
         realtime: f.realtime ?? null,
-        ...(f.tranzy ? { tranzy: f.tranzy } : {}),
         license: f.license,
       };
     }),

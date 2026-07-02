@@ -108,15 +108,6 @@
             "service_alerts":    { "type": "string", "format": "uri" }
           }
         },
-        "tranzy": {
-          "type": "object",
-          "description": "Optional. Mapping for the Tranzy.ai advanced signal (used only when a user supplies an API key in app settings). Absent means this feed cannot be augmented with Tranzy.",
-          "required": ["agency_id"],
-          "additionalProperties": false,
-          "properties": {
-            "agency_id": { "type": "string", "minLength": 1 }
-          }
-        },
         "license": {
           "type": "object",
           "required": ["attribution_text"],

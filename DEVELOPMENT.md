@@ -74,8 +74,6 @@ Create `feeds/<id>/config.json` when you need to:
 - Swap the source for a sister-repo zip (`source.type=remote`)
 - Provide / override realtime URLs (the MDB-resolver default may be
   missing or wrong)
-- Add a `tranzy.agency_id` mapping so the app's optional Tranzy
-  augmentation works
 - Override the inferred license text or attribution URL
 
 Worked example: [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json).
@@ -108,7 +106,7 @@ To use a sister-repo zip instead of Transitous, add:
 ```
 
 Other optional overlay fields: `id`, `name`, `country`, `region`,
-`timezone`, `languages`, `realtime`, `tranzy`. Anything you don't set
+`timezone`, `languages`, `realtime`. Anything you don't set
 inherits from the Transitous-derived base.
 
 Orphan overrides (a `feeds/<id>/` whose `enhances` doesn't match any

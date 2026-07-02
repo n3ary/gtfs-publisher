@@ -10,7 +10,7 @@
  *     pointing at a fully pre-built GTFS zip in another repo
  *     (e.g. cluj-napoca-gtfs-adapter).
  *
- * The override file may also overlay realtime / tranzy / license / metadata
+ * The override file may also overlay realtime / license / metadata
  * fields on top of either kind of base.
  *
  * Local feed dirs without an `enhances` value (or whose `enhances`
@@ -92,7 +92,6 @@ function projectFeed(iso, raw, override, mdbRealtime) {
     },
     agencies: [], // derive-bbox re-reads agency.txt; this is just a placeholder
     realtime: mdbRealtime,
-    tranzy: null,
     license: {
       spdx_identifier: raw.license?.['spdx-identifier'] ?? null,
       attribution_text: raw.license?.['attribution-text'] ?? raw.name,
@@ -132,7 +131,6 @@ function projectFeed(iso, raw, override, mdbRealtime) {
       languages: c.languages ?? [],
       source,
       realtime: c.realtime ?? mdbRealtime,
-      tranzy: c.tranzy ?? null,
       license: {
         spdx_identifier: c.license?.spdx_identifier ?? base.license.spdx_identifier,
         attribution_text: c.license?.attribution_text ?? base.license.attribution_text,

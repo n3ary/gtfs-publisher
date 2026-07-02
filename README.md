@@ -7,8 +7,7 @@ PWA actually needs to render a city:
 1. A `.sqlite3.gz` blob per feed (the app's in-OPFS data store).
 2. A single `feeds.json` registry with everything else the app reads at
    launch — bbox, center, timezone, agencies, license, realtime URLs,
-   optional Tranzy mapping, and the upstream ETag we use for
-   change-detection.
+   and the upstream ETag we use for change-detection.
 
 > [!NOTE]
 > **Live registry**: [`https://gtfs.n3ary.com/feeds.json`](https://gtfs.n3ary.com/feeds.json) (Cloudflare R2 via custom domain)
@@ -60,10 +59,9 @@ Two source flavors today:
 | `remote` | URL in `feeds/<id>/config.json` `source.url` | Transitous's mirror is stale and a sister repo publishes a better zip for the same operator (e.g. [`cluj-napoca-gtfs-adapter`](https://github.com/ciotlosm/cluj-napoca-gtfs-adapter)). |
 
 A `feeds/<id>/config.json` is also where you overlay app-side metadata
-on top of either source — `realtime` URLs, `tranzy` mapping, license
-text, a `smoke` contract block. See
-[`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json) for a
-worked example.
+on top of either source — `realtime` URLs, license text, a `smoke`
+contract block. See [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json)
+for a worked example.
 
 ## Pipeline
 
