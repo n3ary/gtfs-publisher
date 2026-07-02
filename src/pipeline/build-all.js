@@ -13,7 +13,7 @@
  *
  * Output layout (under `outputs/`):
  *   outputs/feeds.json
- *   outputs/<id>.sqlite3.gz
+ *   outputs/<id>-<hash12>.sqlite3.gz  — content-addressed URL
  *
  * Publish: .github/workflows/daily.yml uploads outputs/ to Cloudflare R2.
  *
@@ -80,14 +80,23 @@ async function main() {
     console.log(`\n=== ${feed.id} (${feed.source.type}) ===`);
 
     // Skip-on-unchanged: if upstream ETag is unchanged AND we already
-    // shipped a sqlite_gz for this feed, pass the previous entry through.
-    // Bypassed when FORCE_REBUILD is set (use after pipeline code changes
-    // that affect output but don't touch the upstream feed).
+    // shipped a hash-versioned sqlite_gz for this feed, pass the previous
+    // entry through. Bypassed when FORCE_REBUILD is set (use after
+    // pipeline code changes that affect output but don't touch the
+    // upstream feed).
+    //
+    // The `hashedFilename` check auto-migrates any old-shape entry
+    // (`<id>.sqlite3.gz` without hash suffix) by forcing a rebuild the
+    // first time a run sees it after switching to content-addressed
+    // URLs. Steady state after migration: all entries pass the check.
     const prevEntry = prev.get(feed.id);
     const prevEtag = prevEntry?.source?.upstream_etag;
+    const prevFile = prevEntry?.files?.sqlite_gz;
+    const hashedFilename = typeof prevFile === 'string' &&
+      new RegExp(`^${feed.id.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}-[0-9a-f]{12}\\.sqlite3\\.gz$`).test(prevFile);
     const currentEtag = await fetchUpstreamEtag(feed.source.upstream_url);
     const forceRebuild = !!process.env.FORCE_REBUILD;
-    if (!forceRebuild && prevEtag && currentEtag === prevEtag && prevEntry.files?.sqlite_gz) {
+    if (!forceRebuild && prevEtag && currentEtag === prevEtag && hashedFilename) {
       console.log(`[build-all] ${feed.id}: upstream unchanged (ETag ${currentEtag}) — reusing previous build`);
       entries.push({ reused: true, prevEntry });
       reused++;
@@ -95,6 +104,8 @@ async function main() {
     }
     if (forceRebuild && prevEtag && currentEtag === prevEtag) {
       console.log(`[build-all] ${feed.id}: upstream unchanged (ETag ${currentEtag}) but FORCE_REBUILD set — rebuilding`);
+    } else if (prevEtag && currentEtag === prevEtag && !hashedFilename) {
+      console.log(`[build-all] ${feed.id}: upstream unchanged but previous entry has legacy filename shape — rebuilding to migrate`);
     } else if (prevEtag) {
       console.log(`[build-all] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag ?? 'null'}) — rebuilding`);
     }

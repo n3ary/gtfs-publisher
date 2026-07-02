@@ -73,13 +73,22 @@ jobs:
           #    keep seeing the previous feeds.json — which references
           #    previous sqlite objects still in the bucket — rather than
           #    a new feeds.json pointing at objects that haven't landed.
+          #
+          #    Cache-Control is 1 year + immutable because sqlite
+          #    filenames embed the sha256 (content-addressed URL). A
+          #    content change always yields a new filename, so any
+          #    cached copy at an old URL is by construction still
+          #    correct for that URL. Cloudflare's edge default TTL for
+          #    the `.gz` extension may still apply to the response
+          #    header seen by clients (~4h), but that's irrelevant —
+          #    the URL never serves different bytes.
           shopt -s nullglob
           for f in outputs/*.sqlite3.gz; do
             name=$(basename "$f")
             echo "[publish] uploading $name ($(du -h "$f" | cut -f1))"
             aws s3 cp "$f" "s3://$BUCKET/$name" \
               --endpoint-url "$ENDPOINT" \
-              --cache-control "public, max-age=300" \
+              --cache-control "public, max-age=31536000, immutable" \
               --content-type "application/octet-stream"
           done
 

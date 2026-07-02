@@ -36,25 +36,32 @@ npm run pipeline            # = node src/pipeline/build-all.js
 6. **`derive-bbox.js`** — `unzip -p` the zip's `stops.txt` /
    `agency.txt` / `feed_info.txt` → bbox, center, agencies, timezone,
    validity dates.
-7. **`make-sqlite.js`** — `.zip` → `.sqlite3.gz`. The raw `.gtfs.zip`
-   is unlinked after; consumers fetch it from the upstream URL.
+7. **`make-sqlite.js`** — `.zip` → `<id>-<hash12>.sqlite3.gz`. Filename
+   embeds the first 12 hex chars of the gzipped blob's sha256 so the
+   R2 URL is **content-addressed**: a content change produces a new
+   filename, and any cached copy at an old URL is by construction
+   still correct for that URL. The raw `.gtfs.zip` is unlinked after;
+   consumers fetch it from the upstream URL.
 8. **`make-app-registry.js`** — write Ajv-validated
-   [`outputs/feeds.json`](../../outputs/feeds.json).
+   [`outputs/feeds.json`](../../outputs/feeds.json). Each entry's
+   `files.sqlite_gz` is the hash-versioned basename produced above.
 
 Output layout under `outputs/` (mirrors the R2 bucket root):
 
 ```
 outputs/feeds.json
-outputs/<id>.sqlite3.gz
+outputs/<id>-<hash12>.sqlite3.gz
 ```
 
 ## Skip-on-unchanged
 
 Each `feeds.json` entry records `source.upstream_etag` at build time.
 Next run, the orchestrator does a `HEAD` on `source.upstream_url`; if
-the ETag matches AND the previous `<id>.sqlite3.gz` is still
-referenced, the whole feed is reused from the previous registry — no
-download, no make-sqlite, no publish churn.
+the ETag matches AND the previous entry's `files.sqlite_gz` uses the
+current hash-versioned shape, the whole feed is reused from the
+previous registry — no download, no make-sqlite, no publish churn.
+An entry with a legacy (non-hash-versioned) filename triggers a
+one-time rebuild-to-migrate.
 
 Previous registry is fetched from `${R2_PUBLIC_BASE_URL}/feeds.json`
 (default `https://gtfs.n3ary.com/feeds.json`) at the start of each

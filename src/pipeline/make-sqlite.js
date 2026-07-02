@@ -6,10 +6,13 @@
  *
  * Pipeline contract:
  *   - Input: a local .zip path passed by fetch-gtfs.js (no download)
- *   - Output: outputs/<feedId>.sqlite3.gz (raw .sqlite3 transient)
+ *   - Output: outputs/<feedId>-<hash12>.sqlite3.gz (raw .sqlite3 transient)
+ *     Filename embeds the first 12 hex chars of the gzipped-blob sha256
+ *     so the R2 URL is content-addressed — clients never fetch stale
+ *     bytes from a browser cache after a content change.
  *   - No manifest written — feeds.json carries all the metadata
  *
- * Returns: { localPath, sizeBytes } for the .sqlite3.gz file.
+ * Returns: { localPath, sizeBytes, hash } for the .sqlite3.gz file.
  */
 
 import Database from 'better-sqlite3';
@@ -17,7 +20,7 @@ import { parse } from 'csv-parse/sync';
 import StreamZip from 'node-stream-zip';
 
 import { createGzip } from 'node:zlib';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';import { createHash } from 'node:crypto';
@@ -302,6 +305,16 @@ export async function makeSqlite(gtfsZipPath, feedId) {
 
   const hash = 'sha256-' + createHash('sha256').update(readFileSync(gzPath)).digest('hex');
 
-  console.log(`[make-sqlite] ${feedId}: raw=${(rawSize / 1024).toFixed(1)}KB gz=${(sizeBytes / 1024).toFixed(1)}KB (${((sizeBytes / rawSize) * 100).toFixed(0)}%)`);
-  return { localPath: gzPath, sizeBytes, hash };
+  // Content-address the filename so cache TTL on the R2 URL is
+  // irrelevant to correctness: a content change yields a new hash and
+  // a new URL. Old URLs point at content that will never change; new
+  // URLs point at fresh content. Browsers can never serve stale bytes
+  // at a URL that's already flipped to something else.
+  const hash12 = hash.replace(/^sha256-/, '').slice(0, 12);
+  const finalPath = join(OUTPUTS, `${feedId}-${hash12}.sqlite3.gz`);
+  if (existsSync(finalPath)) unlinkSync(finalPath);
+  renameSync(gzPath, finalPath);
+
+  console.log(`[make-sqlite] ${feedId}: raw=${(rawSize / 1024).toFixed(1)}KB gz=${(sizeBytes / 1024).toFixed(1)}KB (${((sizeBytes / rawSize) * 100).toFixed(0)}%) → ${feedId}-${hash12}.sqlite3.gz`);
+  return { localPath: finalPath, sizeBytes, hash };
 }

@@ -13,7 +13,7 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,7 +50,9 @@ export function makeAppRegistry(feedEntries) {
           ...(e.upstreamEtag ? { upstream_etag: e.upstreamEtag } : {}),
         },
         files: {
-          sqlite_gz: e.sqlite ? `${f.id}.sqlite3.gz` : null,
+          // Filename embeds first 12 hex of the hash — content-addressed
+          // URL, so the R2 cache TTL cannot cause stale-bytes-at-known-URL.
+          sqlite_gz: e.sqlite ? basename(e.sqlite.localPath) : null,
         },
         size_bytes: {
           sqlite_gz: e.sqlite ? e.sqlite.sizeBytes : null,
