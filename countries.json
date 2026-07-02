@@ -1,5 +1,5 @@
 {
   "_comment": "Single source of truth for which feeds we publish. 'include[]' lists Transitous source names (from <iso>.json). Each becomes either a plain mirror of Transitous's resolved zip, OR — if a feeds/<id>/config.json declares enhances:'<name>' with source.type=remote — a download of a sister-repo's pre-built zip (e.g. cluj-napoca-gtfs-adapter).",
-  "countries": ["ro"],
-  "include": ["Cluj-Napoca", "Bucuresti-Ilfov"]
+  "countries": ["ro", "ch"],
+  "include": ["Cluj-Napoca", "Bucuresti-Ilfov", "Tursib", "opentransportdataswiss26"]
 }
