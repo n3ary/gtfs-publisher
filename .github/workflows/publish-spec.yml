@@ -99,10 +99,15 @@ jobs:
           # the @n3ary scope to GitHub Packages and supplies the token
           # inline. Scoped to the run directory so it doesn't leak
           # into the global ~/.npmrc on the runner.
-          cat > .npmrc <<'EOF'
-          @n3ary:registry=https://npm.pkg.github.com
-          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
-          EOF
+          #
+          # Note: heredoc is unquoted (no 'EOF') so ${NODE_AUTH_TOKEN}
+          # gets expanded by the shell. Quoted heredocs ('EOF') would
+          # leave the literal string in the file and npm would reject
+          # the auth.
+          {
+            echo "@n3ary:registry=https://npm.pkg.github.com"
+            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
+          } > .npmrc
           # npm publish with --provenance attaches an SLSA provenance
           # attestation linking the published artifact to this workflow
           # run. Visible in the package's "Attestations" tab.
