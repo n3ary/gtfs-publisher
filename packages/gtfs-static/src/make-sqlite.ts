@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto';
 import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js';
 import type { SqliteFile } from './lib/types.js';
 import { OUTPUTS } from './fetch-gtfs.js';
-import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@neary-gtfs/spec/sql';
+import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@n3ary/neary-gtfs-spec/sql';
 import { EXTENSIONS } from './extensions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,7 +64,7 @@ const CSV_PARSE_OPTS = {
 // GTFS spec-required files whose absence (or empty output after a
 // stream error) means the sqlite is unusable. We refuse to publish
 // an empty schedule rather than let a client fail an integrity check.
-// (REQUIRED_TABLES is imported from @neary-gtfs/spec/sql — see top of file.)
+// (REQUIRED_TABLES is imported from @n3ary/neary-gtfs-spec/sql — see top of file.)
 
 async function* streamCsvRows(zip: StreamZip.StreamZipAsync, filename: string): AsyncGenerator<Record<string, string>> {
   const stream = await zip.stream(filename);
@@ -83,7 +83,7 @@ async function collectCsvRows(zip: StreamZip.StreamZipAsync, filename: string): 
 
 function createSchema(db: Database.Database): void {
   // 1. Spec DDL — the 9 standard GTFS Schedule tables, applied as the
-  //    shared @neary-gtfs/spec/sql SCHEMA object so static and (later)
+  //    shared @n3ary/neary-gtfs-spec/sql SCHEMA object so static and (later)
   //    the gtfs-rt package agree on the same shape.
   for (const [tableName, spec] of Object.entries(SCHEMA)) {
     const cols = spec.columns.map(([n, t]) => `${n} ${t}`);

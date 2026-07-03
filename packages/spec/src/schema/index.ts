@@ -9,7 +9,7 @@
  * so undeclared keys are rejected — protects against accidental
  * shape drift as the spec evolves.
  *
- * Re-exports a barrel; prefer `import { Agency } from '@neary-gtfs/shared/schema'`
+ * Re-exports a barrel; prefer `import { Agency } from '@n3ary/neary-gtfs-spec/schema'`
  * over reaching into individual files.
  */
 

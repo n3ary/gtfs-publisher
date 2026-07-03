@@ -5,11 +5,11 @@
  * feed entry, which is specific to this repo's build logic.
  *
  * Pure GTFS-spec types (Agency, Bbox/Center/Validity, Realtime,
- * License) moved to `@neary-gtfs/spec/schema` in issue #34 step 3.
+ * License) moved to `@n3ary/neary-gtfs-spec/schema` in issue #34 step 3.
  * Re-exported here so existing import paths keep working.
  */
 
-import type { Agency, Bbox, Center, Realtime, Validity, License } from '@neary-gtfs/spec/schema';
+import type { Agency, Bbox, Center, Realtime, Validity, License } from '@n3ary/neary-gtfs-spec/schema';
 
 export type { Agency, Bbox, Center, Realtime, Validity, License };
 

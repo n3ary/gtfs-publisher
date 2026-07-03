@@ -42,7 +42,7 @@ jobs:
         run: pnpm build
 
       - name: Auto-bump version to main + 1
-        uses: ciotlosm/neary-shared/.github/actions/version-bump@v1
+        uses: n3ary/neary-shared/.github/actions/version-bump@v1
         with:
           # Skip the bump when the PR touches only docs/, .github/,
           # .gitignore, or LICENSE. (default already covers .github/,

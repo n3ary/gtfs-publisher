@@ -22,13 +22,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          LATEST_SHA=$(gh api repos/ciotlosm/neary-shared/commits/main --jq '.sha' | cut -c1-7)
+          LATEST_SHA=$(gh api repos/n3ary/neary-shared/commits/main --jq '.sha' | cut -c1-7)
           DRIFT=0
           for f in docs/standards/*.md; do
             [ -f "$f" ] || continue
             HEAD=$(head -1 "$f")
-            echo "$HEAD" | grep -q 'synced from ciotlosm/neary-shared@' || continue
-            VENDORED_SHA=$(echo "$HEAD" | grep -oP 'ciotlosm/neary-shared@\K[a-f0-9]+')
+            echo "$HEAD" | grep -q 'synced from n3ary/neary-shared@' || continue
+            VENDORED_SHA=$(echo "$HEAD" | grep -oP 'n3ary/neary-shared@\K[a-f0-9]+')
             if [ "$VENDORED_SHA" != "$LATEST_SHA" ]; then
               echo "Drift: $f vendored at $VENDORED_SHA, latest is $LATEST_SHA"
               DRIFT=1
@@ -36,7 +36,7 @@ jobs:
           done
           if [ "$DRIFT" = "1" ]; then
             echo "Drift detected."
-            echo "Wait for the auto-sync PR from ciotlosm/neary-shared to land, or run the vendor script locally."
+            echo "Wait for the auto-sync PR from n3ary/neary-shared to land, or run the vendor script locally."
             exit 1
           fi
-          echo "All vendored standards up to date with ciotlosm/neary-shared@main ($LATEST_SHA)."
+          echo "All vendored standards up to date with n3ary/neary-shared@main ($LATEST_SHA)."

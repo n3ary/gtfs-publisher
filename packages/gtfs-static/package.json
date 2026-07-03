@@ -18,7 +18,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@neary-gtfs/spec": "workspace:*",
+    "@n3ary/neary-gtfs-spec": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "archiver": "^8.0.0",

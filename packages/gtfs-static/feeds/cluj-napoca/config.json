@@ -3,7 +3,7 @@
   "source": {
     "type": "remote",
     "publisher": "cluj-napoca-gtfs-adapter",
-    "url": "https://raw.githubusercontent.com/ciotlosm/cluj-napoca-gtfs-adapter/binaries/cluj-napoca.gtfs.zip"
+    "url": "https://raw.githubusercontent.com/n3ary/cluj-napoca-gtfs-adapter/binaries/cluj-napoca.gtfs.zip"
   },
   "license": {
     "attribution_text": "© Compania de Transport Public Cluj-Napoca",
