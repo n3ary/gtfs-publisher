@@ -5,11 +5,11 @@ on:
     branches: [main]
 
 # Ensure the PR is up-to-date before merging (protects version sequencing).
-# GitHub branch protection "Require branches to be up-to-date" enforces this
+# GitHub branch protection "Require branches to be up to date" enforces this
 # at the merge button level; this workflow re-validates on every push.
 
 permissions:
-  contents: write  # needed to push version-bump commit back to PR branch
+  contents: write  # needed by the version-bump action to push the bot commit
 
 jobs:
   validate:
@@ -33,44 +33,13 @@ jobs:
         run: npm ci
 
       - name: Auto-bump version to main + 1
-        run: |
-          # Skip version bump if PR only touches metadata files
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
-          NON_META_FILES=$(echo "$CHANGED_FILES" | grep -vE '^(docs/|\.github/|\.gitignore|LICENSE)' || true)
-          if [ -z "$NON_META_FILES" ]; then
-            echo "PR only changes metadata — skipping version bump"
-            exit 0
-          fi
-
-          # Get the current version on main
-          MAIN_VERSION=$(git show origin:main:package.json | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version")
-          # Increment the patch. Handles pre-release tags (e.g. 0.2.0-m1 → 0.2.1-m1)
-          # by preserving the suffix across the bump. Fails loudly on
-          # unparseable versions.
-          NEXT_VERSION=$(node -e '
-            const v = process.argv[1].match(/^(\d+)\.(\d+)\.(\d+)(-.+)?$/);
-            if (!v) { console.error("Unparseable version:", process.argv[1]); process.exit(1); }
-            const [, major, minor, patchStr, prerelease = ""] = v;
-            console.log(`${major}.${minor}.${Number(patchStr) + 1}${prerelease}`);
-          ' "$MAIN_VERSION")
-          # Get this branch's current version
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-
-          echo "Main version: $MAIN_VERSION"
-          echo "Next version: $NEXT_VERSION"
-          echo "PR branch version: $CURRENT_VERSION"
-
-          if [ "$CURRENT_VERSION" != "$NEXT_VERSION" ]; then
-            echo "Bumping version from $CURRENT_VERSION to $NEXT_VERSION"
-            npm version "$NEXT_VERSION" --no-git-tag-version
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add package.json
-            git commit -m "chore(release): auto-bump to v${NEXT_VERSION}"
-            git push
-          else
-            echo "Version already correct ($CURRENT_VERSION), skipping bump"
-          fi
+        uses: ciotlosm/neary-shared/.github/actions/version-bump@v1
+        with:
+          # Skip the bump when the PR touches only docs/, .github/,
+          # .gitignore, or LICENSE. (default already covers .github/,
+          # .gitignore, LICENSE; explicitly including docs/ to match
+          # this repo's pipeline paths-ignore semantics).
+          bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
 
       - name: Run tests
         run: npm test
