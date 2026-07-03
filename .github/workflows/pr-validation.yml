@@ -52,14 +52,25 @@ jobs:
         # action also skips itself for the same paths. Same paths as
         # `paths-ignore` on the daily.yml workflow.
         # GITHUB_OUTPUT format requires `key=value` per line, no newlines.
+        # Each path is matched as a prefix (any depth under docs/, .github/,
+        # outputs/), not as an exact filename match — the previous regex
+        # only matched files DIRECTLY under those dirs, missing
+        # docs/standards/version-management.md.
         run: |
-          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD | tr '\n' ' ')
-          if echo "$CHANGED" | grep -qE '[^[:space:]]' && echo "$CHANGED" | grep -vqE '(^| )(docs/|\.github/|\.gitignore|LICENSE|outputs/[^ ]+)( |$)'; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "reason=non-metadata changes present" >> "$GITHUB_OUTPUT"
-          else
+          NON_META=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              docs/*|.github/*|.gitignore|LICENSE|outputs/*) : ;;  # metadata
+              *) NON_META="$NON_META $f" ;;
+            esac
+          done < <(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+          if [ -z "$NON_META" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "reason=metadata-only diff" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "reason=non-metadata: $NON_META" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run pipeline (smoke check)
