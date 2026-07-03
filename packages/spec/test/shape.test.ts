@@ -8,7 +8,6 @@ import {
   pointAtDistance,
   bearingBetween,
   bearingAtDistance,
-  DEG,
   lerpLatLon,
   findSegmentAtDistance,
   type Polyline,
@@ -161,6 +160,18 @@ describe('measurePolyline + pointAtDistance', () => {
     expect(p.lat).toBeCloseTo(last.lat, 5);
   });
 
+  it('pointAtDistance on a single-point polyline returns that point regardless of distM', () => {
+    const single = measurePolyline([STRAIGHT[0]]);
+    expect(pointAtDistance(single, -10)).toEqual(STRAIGHT[0]);
+    expect(pointAtDistance(single, 0)).toEqual(STRAIGHT[0]);
+    expect(pointAtDistance(single, 999999)).toEqual(STRAIGHT[0]);
+  });
+
+  it('pointAtDistance throws on an empty polyline', () => {
+    const empty = measurePolyline([]);
+    expect(() => pointAtDistance(empty, 0)).toThrow();
+  });
+
   it('pointAtDistance at half a segment gives a midpoint', () => {
     const measured = measurePolyline(STRAIGHT);
     const halfSeg = measured.cumDistM[1] / 2;
@@ -204,15 +215,6 @@ describe('bearingAtDistance', () => {
   it('returns 0 for a polyline with < 2 points', () => {
     const empty: MeasuredPolyline = { points: [], cumDistM: [], totalDistM: 0 };
     expect(bearingAtDistance(empty, 0)).toBe(0);
-  });
-});
-
-describe('DEG (degrees-to-radians constant)', () => {
-  it('is approximately π/180', () => {
-    expect(DEG).toBeCloseTo(Math.PI / 180, 15);
-  });
-  it('converts 180° to π', () => {
-    expect(180 * DEG).toBeCloseTo(Math.PI, 15);
   });
 });
 

@@ -36,7 +36,17 @@ export function measurePolyline(polyline: Polyline): MeasuredPolyline {
 
 /** Resolve a cumulative-distance value back to a lat/lon on the
  *  polyline. Clamps to the endpoints when out of range. O(log n)
- *  thanks to the precomputed `cumDistM`. */
+ *  thanks to the precomputed `cumDistM`.
+ *
+ * Edge cases (intentional precedence):
+ *   - length 0         → throws (programming error in the caller)
+ *   - length 1         → returns the single point (regardless of distM)
+ *   - distM < 0        → returns the start vertex
+ *   - distM > total    → returns the end vertex
+ *
+ * When length === 1, totalDistM === 0, so both the "distM <= 0" and
+ * "distM >= totalDistM" branches would match; the "length 1 OR distM <= 0"
+ * check above wins and returns the single point. */
 export function pointAtDistance(measured: MeasuredPolyline, distM: number): LatLon {
   const { points, cumDistM, totalDistM } = measured;
   if (points.length === 0) {

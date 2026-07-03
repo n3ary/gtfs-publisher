@@ -17,11 +17,8 @@
  */
 
 export type { LatLon } from './latlon.js';
-export {
-  DEG,
-  lerpLatLon,
-  findSegmentAtDistance,
-} from './geometry.js';
+// `DEG` is internal — consumers don't need a degrees-to-radians constant.
+export { lerpLatLon, findSegmentAtDistance } from './geometry.js';
 export { haversineMeters } from './haversine.js';
 export {
   type Polyline,
