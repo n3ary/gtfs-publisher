@@ -9,8 +9,9 @@
  * shape math uses it for; not for anything where sub-meter matters.
  */
 
+import { DEG } from './geometry.js';
+
 const EARTH_R_M = 6_371_008.8;
-const DEG = Math.PI / 180;
 
 /**
  * Great-circle distance between two WGS84 points, in meters.

@@ -8,6 +8,9 @@ import {
   pointAtDistance,
   bearingBetween,
   bearingAtDistance,
+  DEG,
+  lerpLatLon,
+  findSegmentAtDistance,
   type Polyline,
   type MeasuredPolyline,
 } from '../src/shape/index.js';
@@ -201,5 +204,50 @@ describe('bearingAtDistance', () => {
   it('returns 0 for a polyline with < 2 points', () => {
     const empty: MeasuredPolyline = { points: [], cumDistM: [], totalDistM: 0 };
     expect(bearingAtDistance(empty, 0)).toBe(0);
+  });
+});
+
+describe('DEG (degrees-to-radians constant)', () => {
+  it('is approximately π/180', () => {
+    expect(DEG).toBeCloseTo(Math.PI / 180, 15);
+  });
+  it('converts 180° to π', () => {
+    expect(180 * DEG).toBeCloseTo(Math.PI, 15);
+  });
+});
+
+describe('lerpLatLon', () => {
+  it('returns a when t=0', () => {
+    const a: LatLon = { lat: 1, lon: 2 };
+    const b: LatLon = { lat: 5, lon: 6 };
+    expect(lerpLatLon(a, b, 0)).toEqual(a);
+  });
+  it('returns b when t=1', () => {
+    const a: LatLon = { lat: 1, lon: 2 };
+    const b: LatLon = { lat: 5, lon: 6 };
+    expect(lerpLatLon(a, b, 1)).toEqual(b);
+  });
+  it('returns the midpoint when t=0.5', () => {
+    const a: LatLon = { lat: 0, lon: 0 };
+    const b: LatLon = { lat: 10, lon: 20 };
+    expect(lerpLatLon(a, b, 0.5)).toEqual({ lat: 5, lon: 10 });
+  });
+  it('extrapolates when t > 1', () => {
+    const a: LatLon = { lat: 0, lon: 0 };
+    const b: LatLon = { lat: 10, lon: 20 };
+    expect(lerpLatLon(a, b, 2)).toEqual({ lat: 20, lon: 40 });
+  });
+});
+
+describe('findSegmentAtDistance', () => {
+  it('finds the segment containing a distance', () => {
+    // cumDistM = [0, 100, 250, 400] means segments: [0,100], [100,250], [250,400].
+    // The function's invariant is cumDistM[lo] <= distM < cumDistM[lo+1]
+    // (so boundary values land in the higher segment).
+    expect(findSegmentAtDistance([0, 100, 250, 400], 50)).toBe(0);
+    expect(findSegmentAtDistance([0, 100, 250, 400], 100)).toBe(1);  // boundary
+    expect(findSegmentAtDistance([0, 100, 250, 400], 200)).toBe(1);
+    expect(findSegmentAtDistance([0, 100, 250, 400], 250)).toBe(2);  // boundary
+    expect(findSegmentAtDistance([0, 100, 250, 400], 399)).toBe(2);
   });
 });

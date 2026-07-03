@@ -8,6 +8,7 @@
 import { haversineMeters } from './haversine.js';
 import type { LatLon } from './latlon.js';
 import type { Polyline } from './projection.js';
+import { findSegmentAtDistance, lerpLatLon } from './geometry.js';
 
 export interface MeasuredPolyline {
   points: Polyline;
@@ -43,22 +44,11 @@ export function pointAtDistance(measured: MeasuredPolyline, distM: number): LatL
   }
   if (points.length === 1 || distM <= 0) return points[0]!;
   if (distM >= totalDistM) return points[points.length - 1]!;
-  // Binary search for the segment containing distM:
-  //   cumDistM[lo] <= distM < cumDistM[lo + 1]
-  let lo = 0;
-  let hi = cumDistM.length - 1;
-  while (lo + 1 < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (cumDistM[mid]! <= distM) lo = mid;
-    else hi = mid;
-  }
-  // noUncheckedIndexedAccess; loop invariant guarantees lo < hi and lo+1 < n.
+  const lo = findSegmentAtDistance(cumDistM, distM);
+  // noUncheckedIndexedAccess; findSegmentAtDistance guarantees lo+1 < n.
   const a = points[lo]!;
   const b = points[lo + 1]!;
   const segLen = cumDistM[lo + 1]! - cumDistM[lo]!;
   const t = segLen > 0 ? (distM - cumDistM[lo]!) / segLen : 0;
-  return {
-    lat: a.lat + (b.lat - a.lat) * t,
-    lon: a.lon + (b.lon - a.lon) * t,
-  };
+  return lerpLatLon(a, b, t);
 }

@@ -17,6 +17,11 @@
  */
 
 export type { LatLon } from './latlon.js';
+export {
+  DEG,
+  lerpLatLon,
+  findSegmentAtDistance,
+} from './geometry.js';
 export { haversineMeters } from './haversine.js';
 export {
   type Polyline,

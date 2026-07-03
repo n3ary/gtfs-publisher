@@ -13,6 +13,7 @@
 
 import { haversineMeters } from './haversine.js';
 import type { LatLon } from './latlon.js';
+import { DEG, lerpLatLon } from './geometry.js';
 
 /** A route shape: ordered list of polyline vertices. Generated from
  *  the SQLite `shapes` table sorted by `shape_pt_sequence`. */
@@ -51,7 +52,7 @@ function projectOnSegment(
   // Equirectangular: x = lon * cos(midLat), y = lat. Use a's lat
   // as the linearization anchor (segments are short enough that
   // any vertex's latitude is a fine choice).
-  const cosLat = Math.cos((a.lat * Math.PI) / 180);
+  const cosLat = Math.cos(a.lat * DEG);
   const ax = a.lon * cosLat;
   const ay = a.lat;
   const bx = b.lon * cosLat;
@@ -65,9 +66,7 @@ function projectOnSegment(
   // projection always lands on the segment proper (not its extension).
   const tRaw = ((px - ax) * dx + (py - ay) * dy) / lenSq;
   const t = Math.max(0, Math.min(1, tRaw));
-  const projX = ax + t * dx;
-  const projY = ay + t * dy;
-  const proj: LatLon = { lat: projY, lon: projX / cosLat };
+  const proj = lerpLatLon(a, b, t);
   const perpM = haversineMeters(p.lat, p.lon, proj.lat, proj.lon);
   return { proj, t, perpM };
 }
