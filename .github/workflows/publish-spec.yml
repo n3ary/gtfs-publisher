@@ -1,0 +1,103 @@
+name: Publish @n3ary/neary-gtfs-spec
+
+# Publishes packages/spec to GitHub Packages (https://npm.pkg.github.com/).
+#
+# Triggers:
+#   - workflow_dispatch with a `version` input (e.g. "0.1.0", "0.2.0-rc.1").
+#     Bumps the package.json version, commits, tags, publishes.
+#   - push of a tag matching packages/spec/v* — publish that exact version.
+#
+# The package is PUBLIC on GitHub Packages (set via `access: public` in
+# packages/spec/package.json#publishConfig at first publish). To make
+# it private after the initial publish, edit the `access` field in
+# publishConfig and re-run.
+#
+# Authentication: GITHUB_TOKEN with `packages: write` (default in this
+# workflow file). No additional secrets required.
+#
+# Consumers (neary, cluj) add this to their .npmrc:
+#   @n3ary:registry=https://npm.pkg.github.com
+# then `npm install @n3ary/neary-gtfs-spec` works.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0, 0.2.0-rc.1). Leave blank to publish the current package.json version as-is.'
+        required: false
+        type: string
+  push:
+    tags:
+      - 'packages/spec/v*'
+
+permissions:
+  contents: write   # for the version-bump + tag-push path
+  packages: write   # for npm publish
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6.0.9
+
+      - name: Install dependencies
+        # --trust-lockfile: the lockfile is part of the source tree
+        # and goes through PR review. Skips pnpm 11's supply-chain
+        # re-verification (which can reject fresh publishes within 24h).
+        run: pnpm install --frozen-lockfile --trust-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Test packages
+        run: pnpm test
+
+      - name: Set version
+        id: set-version
+        # workflow_dispatch + version input → bump package.json + tag.
+        # Tag push → use the version already in the tag.
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          cd packages/spec
+          # Validate version format (semver-ish; prerelease ok)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+            echo "::error::Invalid version format: $VERSION (expected e.g. 0.1.0 or 0.2.0-rc.1)"
+            exit 1
+          fi
+          npm version "$VERSION" --no-git-tag-version
+          cd ../..
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/spec/package.json
+          git commit -m "chore(release): @n3ary/neary-gtfs-spec v${VERSION}"
+          git tag "packages/spec/v${VERSION}"
+          git push origin "packages/spec/v${VERSION}" --no-verify
+          git push origin HEAD --no-verify
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to GitHub Packages
+        # Always builds the latest spec/ contents and publishes. The
+        # version field is whatever's in packages/spec/package.json at
+        # this point (either pre-existing or just bumped above).
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # npm publish with --provenance attaches an SLSA provenance
+          # attestation linking the published artifact to this workflow
+          # run. Visible in the package's "Attestations" tab.
+          cd packages/spec
+          npm publish --provenance --access public
+        # No-op when this is a tag-push of a version already published.
+        continue-on-error: false
