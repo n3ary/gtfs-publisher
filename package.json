@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.1-m1",
+  "version": "0.2.2-m1",
   "private": true,
   "type": "module",
   "description": "App-side GTFS → SQLite + feeds.json registry for the neary PWA",
@@ -14,7 +14,7 @@
   "dependencies": {
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "better-sqlite3": "^12.11.1",
     "csv-parse": "^7.0.0",
     "node-stream-zip": "^1.15.0"
