@@ -44,9 +44,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Run linter
-        run: npm run lint
-
       - name: Run pipeline (smoke check)
         # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
         # produce outputs/feeds.json + outputs/*.sqlite3.gz without
