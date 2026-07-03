@@ -12,7 +12,7 @@ gh pr create --fill
 gh pr merge --squash --delete-branch
 ```
 
-The PR-validation workflow ([`.github/workflows/pr-validation.yml`](.github/workflows/pr-validation.yml)) runs on every PR, bumps `package.json#version` if needed, and runs the test/lint/pipeline smoke. Push to `main` (via the squash-merge) auto-triggers the daily pipeline via [`.github/workflows/daily.yml`](.github/workflows/daily.yml). Docs-only PRs (`docs/**`, `.gitignore`, `LICENSE`) are excluded from the bump and from the daily pipeline via `paths-ignore` so README edits don't churn the R2 bucket.
+The PR-validation workflow ([`.github/workflows/pr-validation.yml`](.github/workflows/pr-validation.yml)) runs on every PR, bumps `package.json#version` if needed, and runs the test/lint/pipeline smoke. Push to `main` (via the squash-merge) auto-triggers the daily pipeline via [`.github/workflows/daily.yml`](.github/workflows/daily.yml). Docs-only PRs (`docs/**`, `.github/`, `.gitignore`, `LICENSE`, `outputs/**`, `pnpm-lock.yaml`, `tsconfig*.json`, `packages/*/src/schema/**`) are excluded from the bump and from the daily pipeline via `paths-ignore` so README edits don't churn the R2 bucket.
 
 Branch protection:
 - PR required, 0 approvals (solo-dev friendly)
@@ -20,9 +20,20 @@ Branch protection:
 - No force-push, no branch deletion
 - Admin override allowed for genuine emergencies
 
+## Repository layout
+
+This is a pnpm workspace (`pnpm-workspace.yaml`). Three packages:
+
+| Package | Purpose |
+|---|---|
+| [`packages/gtfs-static/`](packages/gtfs-static/) | The daily pipeline (CSV → sqlite3.gz → feeds.json → R2). Cron-triggered via GitHub Actions. |
+| [`packages/gtfs-rt/`](packages/gtfs-rt/) | Placeholder for the live RT adapter (issue #34, step 7). Will run on Hetzner behind a CF edge cache. |
+| [`packages/shared/`](packages/shared/) | Placeholder for `@ciotlosm/neary-gtfs-core` (issue #34, steps 3-5). Will hold GTFS spec types, CSV readers, SQLite DDL. |
+
 ## Prerequisites
 
 - Node.js 24+
+- pnpm 11+ (matched via `packageManager` field in `package.json`)
 - `unzip` on PATH (every CI runner has it; macOS/Linux too)
 
 No API keys needed — the pipeline only hits `api.transitous.org` and
@@ -31,49 +42,59 @@ whatever URLs are declared in per-feed `config.json` files.
 ## Setup
 
 ```bash
-npm install
+pnpm install
+pnpm build              # build all packages once before first run
 ```
 
 ## Commands
 
+Root-level proxy commands (work from repo root):
+
 ```bash
-npm run pipeline   # full build → outputs/
-npm test           # vitest --run --passWithNoTests
-npm run lint
+pnpm run pipeline       # → pnpm --filter @neary-gtfs/static pipeline
+pnpm test               # → vitest --run across all packages
+pnpm build              # → tsc across all packages
 ```
 
-Pipeline anatomy lives in [`src/pipeline/README.md`](src/pipeline/README.md).
+Inside `packages/gtfs-static/` you can also run the underlying tools directly:
+
+```bash
+cd packages/gtfs-static
+pnpm pipeline           # full build → packages/gtfs-static/outputs/
+pnpm test               # vitest
+```
+
+Pipeline anatomy lives at [`packages/gtfs-static/src/pipeline.README.md`](packages/gtfs-static/src/pipeline.README.md) — wait, actually at the package root: see the package's own README when added.
 
 ## Adding a feed
 
-Single source of truth: [`countries.json`](countries.json) `include[]`.
-Per-feed config files are optional overlays.
+Single source of truth: [`packages/gtfs-static/countries.json`](packages/gtfs-static/countries.json) `include[]`.
+Per-feed config files are optional overlays under `packages/gtfs-static/feeds/`.
 
 ### Default: plain Transitous mirror
 
-1. Add the country's ISO code to `countries.json` `countries[]` if not
-   already present.
+1. Add the country's ISO code to `packages/gtfs-static/countries.json` `countries[]` if not already present.
 2. Find the source name at
    `https://raw.githubusercontent.com/public-transport/transitous/main/feeds/<iso>.json`.
    Confirm `https://api.transitous.org/gtfs/<iso>_<name>.gtfs.zip`
    returns 200.
 3. Add the name to `countries.json` `include[]`.
-4. `npm run pipeline` locally; confirm `outputs/feeds.json` validates
-   and `outputs/<id>.sqlite3.gz` opens
-   (`sqlite3 <(gunzip -c outputs/<id>.sqlite3.gz) 'SELECT COUNT(*) FROM trips'`).
+4. `pnpm pipeline` locally; confirm `packages/gtfs-static/outputs/feeds.json` validates
+   and `packages/gtfs-static/outputs/<id>.sqlite3.gz` opens
+   (`sqlite3 <(gunzip -c packages/gtfs-static/outputs/<id>.sqlite3.gz) 'SELECT COUNT(*) FROM trips'`).
 
 That's it — no `feeds/<id>/` needed for a plain mirror.
 
 ### Overlay app-side metadata or a different source
 
-Create `feeds/<id>/config.json` when you need to:
+Create `packages/gtfs-static/feeds/<id>/config.json` when you need to:
 
 - Swap the source for a sister-repo zip (`source.type=remote`)
 - Provide / override realtime URLs (the MDB-resolver default may be
   missing or wrong)
 - Override the inferred license text or attribution URL
 
-Worked example: [`feeds/cluj-napoca/config.json`](feeds/cluj-napoca/config.json).
+Worked example: [`packages/gtfs-static/feeds/cluj-napoca/config.json`](packages/gtfs-static/feeds/cluj-napoca/config.json).
 
 Minimum shape:
 

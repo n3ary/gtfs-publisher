@@ -1,0 +1,35 @@
+{
+  "name": "@neary-gtfs/static",
+  "version": "0.2.3-m1",
+  "private": true,
+  "description": "Static GTFS → SQLite + feeds.json registry pipeline. Cron-triggered via GitHub Actions.",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "neary-gtfs-static": "./dist/cli.js"
+  },
+  "scripts": {
+    "pipeline": "node dist/cli.js",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "test": "vitest --run --passWithNoTests",
+    "lint": "echo 'no lint yet' && exit 0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@neary-gtfs/shared": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^12.11.1",
+    "csv-parse": "^7.0.1",
+    "node-stream-zip": "^1.15.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
+  }
+}

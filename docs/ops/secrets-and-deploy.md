@@ -32,4 +32,4 @@ PR-required, 0 approvals (solo-dev friendly), linear history (squash/rebase only
 
 ## Local pipeline
 
-See [`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) for the `npm run pipeline` and `npm run lint` setup. For a smoke build without R2 upload: `SKIP_PUBLISH=1 npm run pipeline`.
+See [`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) for the `pnpm pipeline` and `pnpm test` setup. For a smoke build without R2 upload: `SKIP_PUBLISH=1 pnpm pipeline`.
