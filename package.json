@@ -16,7 +16,7 @@
     "ajv-formats": "^3.0.1",
     "archiver": "^8.0.0",
     "better-sqlite3": "^12.11.1",
-    "csv-parse": "^7.0.0",
+    "csv-parse": "^7.0.1",
     "node-stream-zip": "^1.15.0"
   },
   "devDependencies": {
