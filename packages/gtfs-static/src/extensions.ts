@@ -15,8 +15,7 @@
  * GTFS spec library is strictly spec — no per-feed knowledge.
  */
 
-import type { ColumnSpec } from '@neary-gtfs/spec';
-import type { SchemaSpec } from '@neary-gtfs/spec/sql';
+import type { ColumnSpec, SchemaSpec } from '@neary-gtfs/spec/sql';
 
 type NetworksColumns = {
   network_id: ColumnSpec;

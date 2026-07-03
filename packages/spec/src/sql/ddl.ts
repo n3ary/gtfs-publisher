@@ -29,7 +29,8 @@
  * enforced.
  */
 
-import type { ColumnSpec } from '../types.js';
+/** A single SQLite column declaration: [name, sqlType]. */
+export type ColumnSpec = [name: string, type: string];
 
 /** A single GTFS table definition. */
 export type SchemaSpec = {

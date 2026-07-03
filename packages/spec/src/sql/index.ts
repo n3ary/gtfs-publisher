@@ -12,4 +12,5 @@ export {
   SCHEMA_SQL,
   REQUIRED_TABLES,
   type SchemaSpec,
+  type ColumnSpec,
 } from './ddl.js';

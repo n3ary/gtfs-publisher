@@ -27,8 +27,7 @@ import { createHash } from 'node:crypto';
 import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js';
 import type { SqliteFile } from './lib/types.js';
 import { OUTPUTS } from './fetch-gtfs.js';
-import { SCHEMA, REQUIRED_TABLES } from '@neary-gtfs/spec/sql';
-import type { ColumnSpec } from '@neary-gtfs/spec';
+import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@neary-gtfs/spec/sql';
 import { EXTENSIONS } from './extensions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
