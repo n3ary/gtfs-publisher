@@ -1,0 +1,42 @@
+name: Check Standards Drift
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Check vendored standards against neary-shared@main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          LATEST_SHA=$(gh api repos/ciotlosm/neary-shared/commits/main --jq '.sha' | cut -c1-7)
+          DRIFT=0
+          for f in docs/standards/*.md; do
+            [ -f "$f" ] || continue
+            HEAD=$(head -1 "$f")
+            echo "$HEAD" | grep -q 'synced from ciotlosm/neary-shared@' || continue
+            VENDORED_SHA=$(echo "$HEAD" | grep -oP 'ciotlosm/neary-shared@\K[a-f0-9]+')
+            if [ "$VENDORED_SHA" != "$LATEST_SHA" ]; then
+              echo "Drift: $f vendored at $VENDORED_SHA, latest is $LATEST_SHA"
+              DRIFT=1
+            fi
+          done
+          if [ "$DRIFT" = "1" ]; then
+            echo "Drift detected."
+            echo "Wait for the auto-sync PR from ciotlosm/neary-shared to land, or run the vendor script locally."
+            exit 1
+          fi
+          echo "All vendored standards up to date with ciotlosm/neary-shared@main ($LATEST_SHA)."
