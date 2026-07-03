@@ -63,10 +63,10 @@ https://gtfs.n3ary.com/<id>.sqlite3.gz   ← one per feed listed in feeds.json
 
 The raw `.gtfs.zip` is not republished — its upstream URL is in `source.upstream_url`, so any external GTFS tooling can pull it from the original publisher.
 
-`feeds.json` is Ajv-validated against [`schemas/feeds.schema.json`](../../schemas/feeds.schema.json) (draft-2020) on every build, so a malformed entry fails before publish.
+`feeds.json` is Ajv-validated against [`packages/gtfs-static/src/schema/feeds.schema.json`](../../packages/gtfs-static/src/schema/feeds.schema.json) (draft-2020) on every build, so a malformed entry fails before publish.
 
 ## Cross-references
 
-- Pipeline stage implementation — [`src/pipeline/README.md`](../../src/pipeline/README.md)
+- Pipeline stage implementation — [`packages/gtfs-static/src/README.md`](../../packages/gtfs-static/src/README.md)
 - Repository layout and conventions — [`../README.md`](../README.md) (the slimmed landing page)
 - Secrets + R2 setup — [`../ops/secrets-and-deploy.md`](../ops/secrets-and-deploy.md)

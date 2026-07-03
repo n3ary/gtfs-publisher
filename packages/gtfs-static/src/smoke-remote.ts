@@ -1,24 +1,21 @@
 /**
- * smoke-remote.js — post-fetch contract check for source.type='remote' feeds.
+ * smoke-remote.ts — post-fetch contract check for source.type='remote' feeds.
  *
  * Verifies the upstream zip honors what the consumer relies on:
  *   1. feed_info.txt.feed_publisher_name matches `expectedPublisher`
  *      (catches an accidental override / repo rename / wrong URL).
  *   2. Every trips.txt trip_id matches `tripIdPattern` (the contract the
- *      neary reconciler's parseLiveStartMin fallback depends on — see
- *      docs/issues/neary-gtfs-remote-source.md in the adapter repo).
+ *      neary reconciler's parseLiveStartMin fallback depends on).
  *
  * Per-feed expectations live in feeds/<id>/config.json `smoke` block.
  * If no expectations are declared, this is a no-op.
- *
- * Throws on contract violation so the build fails before publish.
  */
 
 import { spawnSync } from 'node:child_process';
 
 import { parseCsv } from './lib/csv.js';
 
-function readEntry(zipPath, entryName) {
+function readEntry(zipPath: string, entryName: string): string | null {
   const r = spawnSync('unzip', ['-p', zipPath, entryName], {
     encoding: 'utf8',
     maxBuffer: 1024 * 1024 * 1024,
@@ -27,15 +24,14 @@ function readEntry(zipPath, entryName) {
   return r.stdout || null;
 }
 
-/**
- * @param {string} zipPath
- * @param {{ expectedPublisher?: string, tripIdPattern?: string } | null | undefined} smoke
- * @returns {{ checks: string[] }} list of checks actually run (for logging)
- * @throws Error on first contract violation
- */
-export function smokeTestRemote(zipPath, smoke) {
+export type SmokeConfig = {
+  expectedPublisher?: string;
+  tripIdPattern?: string;
+};
+
+export function smokeTestRemote(zipPath: string, smoke: SmokeConfig | null | undefined): { checks: string[] } {
   if (!smoke) return { checks: [] };
-  const checks = [];
+  const checks: string[] = [];
 
   if (smoke.expectedPublisher) {
     const csv = readEntry(zipPath, 'feed_info.txt');
@@ -53,10 +49,10 @@ export function smokeTestRemote(zipPath, smoke) {
     const csv = readEntry(zipPath, 'trips.txt');
     if (!csv) throw new Error('smoke: trips.txt missing');
     const rows = parseCsv(csv);
-    const bad = [];
+    const bad: string[] = [];
     for (const t of rows) {
-      if (!re.test(t.trip_id)) {
-        bad.push(t.trip_id);
+      if (!re.test(t.trip_id ?? '')) {
+        bad.push(t.trip_id ?? '');
         if (bad.length >= 5) break;
       }
     }

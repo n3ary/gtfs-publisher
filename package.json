@@ -3,23 +3,20 @@
   "version": "0.2.3-m1",
   "private": true,
   "type": "module",
-  "description": "App-side GTFS → SQLite + feeds.json registry for the neary PWA",
-  "scripts": {
-    "pipeline": "node src/pipeline/build-all.js",
-    "test": "vitest --run --passWithNoTests"
-  },
+  "description": "Producer monorepo for the neary PWA — packages/static (offline pipeline), packages/rt (live RT adapter), packages/shared (@ciotlosm/neary-gtfs-core).",
+  "packageManager": "pnpm@11.5.2",
   "engines": {
-    "node": ">=24"
+    "node": ">=24",
+    "pnpm": ">=11"
   },
-  "dependencies": {
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
-    "archiver": "^8.0.0",
-    "better-sqlite3": "^12.11.1",
-    "csv-parse": "^7.0.1",
-    "node-stream-zip": "^1.15.0"
+  "scripts": {
+    "pipeline": "pnpm --filter @neary-gtfs/static pipeline",
+    "test": "pnpm -r --parallel test",
+    "test:static": "pnpm --filter @neary-gtfs/static test",
+    "build": "pnpm -r --filter './packages/*' build",
+    "lint": "pnpm -r --parallel lint"
   },
   "devDependencies": {
-    "vitest": "^4.0.0"
+    "typescript": "^5.9.0"
   }
 }

@@ -8,20 +8,20 @@ import { pipeline } from 'node:stream/promises';
 
 export const UA = 'neary-gtfs/2.0 (https://github.com/ciotlosm/neary-gtfs)';
 
-export async function fetchJson(url, extraHeaders = {}) {
+export async function fetchJson(url: string, extraHeaders: Record<string, string> = {}): Promise<unknown> {
   const res = await fetch(url, { headers: { 'User-Agent': UA, ...extraHeaders } });
   if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
   return res.json();
 }
 
-export async function fetchText(url) {
+export async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, { headers: { 'User-Agent': UA } });
   if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
   return res.text();
 }
 
-export async function fetchToFile(url, dest) {
+export async function fetchToFile(url: string, dest: string): Promise<void> {
   const res = await fetch(url, { headers: { 'User-Agent': UA } });
   if (!res.ok || !res.body) throw new Error(`GET ${url}: HTTP ${res.status}`);
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(dest));
 }

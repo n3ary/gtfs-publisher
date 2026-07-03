@@ -4,7 +4,7 @@ Every cloud / external piece this repo's pipeline touches, in one diagram + one 
 
 Cross-refs:
 - Pipeline development + CI workflow — [../../DEVELOPMENT.md](../../DEVELOPMENT.md)
-- Pipeline anatomy — [../../src/pipeline/README.md](../../src/pipeline/README.md)
+- Pipeline anatomy — [../../packages/gtfs-static/src/README.md](../../packages/gtfs-static/src/README.md)
 - Sister repo that consumes the outputs — [neary](https://github.com/ciotlosm/neary) docs/architecture/infrastructure.md
 
 ## Diagram

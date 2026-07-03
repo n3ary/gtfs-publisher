@@ -1,5 +1,5 @@
 /**
- * resolve-feeds.js — produce the ordered list of feeds this run will build.
+ * resolve-feeds.ts — produce the ordered list of feeds this run will build.
  *
  * Single source of truth: `countries.json`'s `include[]` lists Transitous
  * source names to publish. Each entry becomes either:
@@ -23,9 +23,10 @@ import { fileURLToPath } from 'node:url';
 
 import { fetchJson } from './lib/http.js';
 import { resolveRealtimeForName } from './lib/mdb-rt.js';
+import type { Feed, License, Realtime } from './lib/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..', '..');
+const ROOT = join(__dirname, '..');
 const FEEDS_DIR = join(ROOT, 'feeds');
 
 const TRANSITOUS_RAW = 'https://raw.githubusercontent.com/public-transport/transitous/main/feeds';
@@ -35,30 +36,40 @@ const TRANSITOUS_GTFS_BASE = 'https://api.transitous.org/gtfs';
 // Per-feed overrides (auto-discovered from feeds/<id>/config.json)
 // ───────────────────────────────────────────────────────────────────────────
 
-function loadOverrides() {
+type Override = { dir: string; cfg: Record<string, unknown> };
+
+function loadOverrides(): Map<string, Override> {
   if (!existsSync(FEEDS_DIR)) return new Map();
-  const byTransitousName = new Map();
+  const byTransitousName = new Map<string, Override>();
   for (const entry of readdirSync(FEEDS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const cfgPath = join(FEEDS_DIR, entry.name, 'config.json');
     if (!existsSync(cfgPath)) continue;
-    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
     if (!cfg.enhances) {
       console.warn(`[resolve-feeds] feeds/${entry.name}/config.json has no 'enhances' field — skipped.`);
       continue;
     }
-    byTransitousName.set(cfg.enhances, { dir: entry.name, cfg });
+    byTransitousName.set(cfg.enhances as string, { dir: entry.name, cfg });
   }
   return byTransitousName;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
 
-async function fetchTransitousCountry(iso) {
-  return fetchJson(`${TRANSITOUS_RAW}/${iso}.json`);
+async function fetchTransitousCountry(iso: string): Promise<{ sources?: RawTransitousSource[] }> {
+  return (await fetchJson(`${TRANSITOUS_RAW}/${iso}.json`)) as { sources?: RawTransitousSource[] };
 }
 
-function defaultSlug(name) {
+type RawTransitousSource = {
+  name?: string;
+  type?: string;
+  spec?: string;
+  url?: string;
+  license?: { 'spdx-identifier'?: string; 'attribution-text'?: string; url?: string };
+};
+
+function defaultSlug(name: string): string {
   return String(name).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
@@ -69,13 +80,19 @@ function defaultSlug(name) {
  * is present, overlay only the fields it explicitly sets — single source
  * of truth for "what fields exist" (the base).
  */
-function projectFeed(iso, raw, override, mdbRealtime) {
+function projectFeed(iso: string, raw: RawTransitousSource, override: Override | undefined, mdbRealtime: Realtime | null): { skip?: string; feed?: Feed } {
   if (!raw.name) return { skip: 'missing name' };
-  if (!['http', 'transitland-atlas', 'mobility-database'].includes(raw.type)) {
+  if (!['http', 'transitland-atlas', 'mobility-database'].includes(raw.type ?? '')) {
     return { skip: `unsupported source type: ${raw.type}` };
   }
 
-  const base = {
+  const baseLicense: License = {
+    spdx_identifier: raw.license?.['spdx-identifier'] ?? null,
+    attribution_text: raw.license?.['attribution-text'] ?? raw.name,
+    attribution_url: raw.license?.url ?? null,
+  };
+
+  const base: Feed = {
     id: defaultSlug(raw.name),
     name: raw.name,
     country: iso.toUpperCase(),
@@ -92,19 +109,21 @@ function projectFeed(iso, raw, override, mdbRealtime) {
     },
     agencies: [], // derive-bbox re-reads agency.txt; this is just a placeholder
     realtime: mdbRealtime,
-    license: {
-      spdx_identifier: raw.license?.['spdx-identifier'] ?? null,
-      attribution_text: raw.license?.['attribution-text'] ?? raw.name,
-      attribution_url: raw.license?.['url'] ?? null,
-    },
+    license: baseLicense,
   };
 
   if (!override) return { feed: base };
 
-  const c = override.cfg;
+  const c = override.cfg as {
+    id?: string; name?: string; country?: string; region?: string;
+    timezone?: string; languages?: string[]; realtime?: Realtime;
+    source?: { type?: string; publisher?: string; url?: string };
+    license?: { spdx_identifier?: string; attribution_text?: string; attribution_url?: string };
+    smoke?: { expectedPublisher?: string; tripIdPattern?: string };
+  };
 
   // The only non-transitous source type currently supported is "remote".
-  // Adding a new type would mean adding a new branch in fetch-gtfs.js.
+  // Adding a new type would mean adding a new branch in fetch-gtfs.ts.
   let source = base.source;
   if (c.source) {
     if (c.source.type !== 'remote') {
@@ -143,41 +162,44 @@ function projectFeed(iso, raw, override, mdbRealtime) {
 
 // ───────────────────────────────────────────────────────────────────────────
 
-export async function resolveFeeds() {
-  const config = JSON.parse(readFileSync(join(ROOT, 'countries.json'), 'utf8'));
+export async function resolveFeeds(): Promise<Feed[]> {
+  const config = JSON.parse(readFileSync(join(ROOT, 'countries.json'), 'utf8')) as {
+    countries?: string[];
+    include?: string[];
+  };
   const countries = config.countries ?? [];
   const includeWhitelist = new Set(config.include ?? []);
   const overrides = loadOverrides();
 
-  const feeds = [];
-  const seenIds = new Set();
-  const matchedOverrides = new Set();
+  const feeds: Feed[] = [];
+  const seenIds = new Set<string>();
+  const matchedOverrides = new Set<string>();
 
   for (const iso of countries) {
-    let payload;
+    let payload: { sources?: RawTransitousSource[] };
     try {
       payload = await fetchTransitousCountry(iso);
     } catch (err) {
-      console.warn(`[resolve-feeds] skipping ${iso}: ${err.message}`);
+      console.warn(`[resolve-feeds] skipping ${iso}: ${(err as Error).message}`);
       continue;
     }
     const sources = Array.isArray(payload.sources) ? payload.sources : [];
     for (const raw of sources) {
-      if (!includeWhitelist.has(raw.name)) continue;
+      if (!raw.name || !includeWhitelist.has(raw.name)) continue;
       // RT siblings are consumed by resolveRealtimeForName below, not
       // emitted as standalone feeds.
       if (raw.spec === 'gtfs-rt') continue;
       const override = overrides.get(raw.name);
-      const mdbRealtime = await resolveRealtimeForName(sources, raw.name);
+      const mdbRealtime = await resolveRealtimeForName(sources as Parameters<typeof resolveRealtimeForName>[0], raw.name);
       const projected = projectFeed(iso, raw, override, mdbRealtime);
       if (projected.skip) {
         console.warn(`[resolve-feeds] ${iso}/${raw.name}: skipped (${projected.skip})`);
         continue;
       }
-      if (seenIds.has(projected.feed.id)) continue;
-      seenIds.add(projected.feed.id);
+      if (seenIds.has(projected.feed!.id)) continue;
+      seenIds.add(projected.feed!.id);
       if (override) matchedOverrides.add(raw.name);
-      feeds.push(projected.feed);
+      feeds.push(projected.feed!);
     }
   }
 
@@ -188,7 +210,7 @@ export async function resolveFeeds() {
     }
   }
 
-  const tag = (f) => f.source.type === 'remote' ? '*' : '';
+  const tag = (f: Feed) => f.source.type === 'remote' ? '*' : '';
   console.log(`[resolve-feeds] ${feeds.length} feed(s): ${feeds.map((f) => `${f.id}${tag(f)}`).join(', ')}  (* = remote source)`);
   return feeds;
 }

@@ -7,7 +7,7 @@ import {
   rotateHueOklch,
   oklabDistance,
   resolveRouteColors,
-} from '../src/pipeline/lib/route-colors.js';
+} from '../src/lib/route-colors.js';
 
 describe('normalizeColor', () => {
   it('expands 3-char hex to 6-char uppercase', () => {
@@ -85,7 +85,6 @@ describe('rotateHueOklch + oklabDistance', () => {
 describe('resolveRouteColors — already-curated feed (Cluj after adapter)', () => {
   it('reports "no fixes needed" when modals are distinct and no placeholders exist', () => {
     const rows = [
-      // Per-type modals are pre-distinct; one-offs are sprinkled in.
       ...Array.from({ length: 4 }, (_, i) => ({ route_id: `T${i}`, route_type: 0, route_color: '#248EFF' })),
       ...Array.from({ length: 142 }, (_, i) => ({ route_id: `B${i}`, route_type: 3, route_color: '#F3513C' })),
       { route_id: 'B-oneoff-1', route_type: 3, route_color: '#693CF3' },
@@ -93,9 +92,8 @@ describe('resolveRouteColors — already-curated feed (Cluj after adapter)', () 
       { route_id: 'TB-oneoff', route_type: 11, route_color: '#1500FF' },
     ];
     const { rows: out, logs } = resolveRouteColors(rows);
-    // No row should have changed color.
     for (let i = 0; i < rows.length; i++) {
-      expect(out[i].route_color).toBe(rows[i].route_color.slice(1).toUpperCase());
+      expect(out[i]!.route_color).toBe((rows[i]!.route_color as string).slice(1).toUpperCase());
     }
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatch(/no route_color fixes needed/);
@@ -122,27 +120,20 @@ describe('resolveRouteColors — modal collision resolution', () => {
     const rows = [
       ...Array.from({ length: 5 }, (_, i) => ({ route_id: `B${i}`, route_type: 3, route_color: '#F3513C' })),
       ...Array.from({ length: 2 }, (_, i) => ({ route_id: `T${i}`, route_type: 0, route_color: '#F3513C' })),
-      // One-off on bus.
       { route_id: 'B-oneoff', route_type: 3, route_color: '#0048FF' },
     ];
     const { rows: out, logs } = resolveRouteColors(rows);
-    // Bus has more routes at F3513C than tram → bus keeps the color.
-    expect(out.find((r) => r.route_id === 'B0').route_color).toBe('F3513C');
-    // Tram routes are reassigned to a single new color, not F3513C.
-    const tramColor = out.find((r) => r.route_id === 'T0').route_color;
+    expect(out.find((r) => r.route_id === 'B0')!.route_color).toBe('F3513C');
+    const tramColor = out.find((r) => r.route_id === 'T0')!.route_color;
     expect(tramColor).not.toBe('F3513C');
-    expect(out.find((r) => r.route_id === 'T1').route_color).toBe(tramColor);
-    // One-off preserved.
-    expect(out.find((r) => r.route_id === 'B-oneoff').route_color).toBe('0048FF');
+    expect(out.find((r) => r.route_id === 'T1')!.route_color).toBe(tramColor);
+    expect(out.find((r) => r.route_id === 'B-oneoff')!.route_color).toBe('0048FF');
     expect(logs.some((l) => /collision resolved/.test(l))).toBe(true);
   });
 });
 
 describe('resolveRouteColors — anchor seeding for feeds with no usable colors', () => {
   it('seeds types with no modal from the #F3513C anchor and skews them apart', () => {
-    // Three types, NONE has any usable color. The anchor is used to
-    // start, the collision resolver skews them apart. Bus has the
-    // most routes so it keeps the anchor; the rest get rotated.
     const rows = [
       { route_id: 'T1', route_type: 0, route_color: '#000' },
       { route_id: 'T2', route_type: 0, route_color: null },
@@ -152,12 +143,10 @@ describe('resolveRouteColors — anchor seeding for feeds with no usable colors'
       { route_id: 'TB1', route_type: 11, route_color: null },
     ];
     const { rows: out, logs } = resolveRouteColors(rows);
-    const tramColor = out.find((r) => r.route_id === 'T1').route_color;
-    const busColor = out.find((r) => r.route_id === 'B1').route_color;
-    const trolleyColor = out.find((r) => r.route_id === 'TB1').route_color;
-    // All three types end up with a distinct color.
+    const tramColor = out.find((r) => r.route_id === 'T1')!.route_color;
+    const busColor = out.find((r) => r.route_id === 'B1')!.route_color;
+    const trolleyColor = out.find((r) => r.route_id === 'TB1')!.route_color;
     expect(new Set([tramColor, busColor, trolleyColor]).size).toBe(3);
-    // The busiest seeded type (bus, 3 routes) keeps the anchor.
     expect(busColor).toBe('F3513C');
     expect(logs.some((l) => /seeded .* anchor #F3513C/.test(l))).toBe(true);
   });

@@ -1,18 +1,16 @@
 /**
- * make-sqlite.js — convert a GTFS .zip into a SQLite blob (+ gzip).
+ * make-sqlite.ts — convert a GTFS .zip into a SQLite blob (+ gzip).
  *
  * Mirrors the GTFS spec 1:1 into the schema the app's worker reads
  * (apps/web/src/lib/workers/gtfs.worker.ts on the neary side).
  *
  * Pipeline contract:
- *   - Input: a local .zip path passed by fetch-gtfs.js (no download)
+ *   - Input: a local .zip path passed by fetch-gtfs.ts (no download)
  *   - Output: outputs/<feedId>-<hash12>.sqlite3.gz (raw .sqlite3 transient)
  *     Filename embeds the first 12 hex chars of the gzipped-blob sha256
  *     so the R2 URL is content-addressed — clients never fetch stale
  *     bytes from a browser cache after a content change.
  *   - No manifest written — feeds.json carries all the metadata
- *
- * Returns: { localPath, sizeBytes, hash } for the .sqlite3.gz file.
  */
 
 import Database from 'better-sqlite3';
@@ -23,16 +21,28 @@ import { createGzip } from 'node:zlib';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pipeline } from 'node:stream/promises';import { createHash } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
+import { createHash } from 'node:crypto';
 
 import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js';
+import type { SqliteFile } from './lib/types.js';
+import { OUTPUTS } from './fetch-gtfs.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..', '..');
-const OUTPUTS = join(ROOT, 'outputs');
+const ROOT = join(__dirname, '..');
 
 // ----- GTFS table schema (must match what the app's worker expects) ----
 
-const SCHEMA = {
+type ColumnSpec = [name: string, type: string];
+type SchemaSpec = {
+  file: string;
+  columns: ColumnSpec[];
+  tableConstraints?: string[];
+  withoutRowid?: boolean;
+  indexes?: Array<[name: string, cols: string]>;
+};
+
+const SCHEMA: Record<string, SchemaSpec> = {
   agency: {
     file: 'agency.txt',
     columns: [
@@ -189,7 +199,7 @@ const SCHEMA = {
 // anything bigger; loading the parsed result into a single array
 // then blows up memory again. We stream from the zip via csv-parse
 // (async), yielding rows one at a time.
-async function entryExists(zip, filename) {
+async function entryExists(zip: StreamZip.StreamZipAsync, filename: string): Promise<boolean> {
   try {
     return !!(await zip.entry(filename));
   } catch {
@@ -204,29 +214,29 @@ const CSV_PARSE_OPTS = {
   relax_column_count: true,
   trim: true,
   bom: true,
-};
+} as const;
 
 // GTFS spec-required files whose absence (or empty output after a
 // stream error) means the sqlite is unusable. We refuse to publish
 // an empty schedule rather than let a client fail an integrity check.
 const REQUIRED_TABLES = ['agency', 'stops', 'routes', 'trips', 'stop_times'];
 
-async function* streamCsvRows(zip, filename) {
+async function* streamCsvRows(zip: StreamZip.StreamZipAsync, filename: string): AsyncGenerator<Record<string, string>> {
   const stream = await zip.stream(filename);
   const parser = stream.pipe(parse(CSV_PARSE_OPTS));
-  for await (const row of parser) yield row;
+  for await (const row of parser) yield row as Record<string, string>;
 }
 
 // Small tables (routes, networks, route_networks) need to be held in
 // memory so post-processing (color resolution) can transform them
 // before insertion.
-async function collectCsvRows(zip, filename) {
-  const rows = [];
+async function collectCsvRows(zip: StreamZip.StreamZipAsync, filename: string): Promise<Record<string, string>[]> {
+  const rows: Record<string, string>[] = [];
   for await (const row of streamCsvRows(zip, filename)) rows.push(row);
   return rows;
 }
 
-function createSchema(db) {
+function createSchema(db: Database.Database): void {
   for (const [tableName, spec] of Object.entries(SCHEMA)) {
     const cols = spec.columns.map(([n, t]) => `${n} ${t}`);
     const constraints = spec.tableConstraints ?? [];
@@ -240,13 +250,13 @@ function createSchema(db) {
   db.exec(`CREATE TABLE _neary_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 }
 
-function makeRowInserter(db, tableName, columns) {
+function makeRowInserter(db: Database.Database, tableName: string, columns: ColumnSpec[]) {
   const colNames = columns.map(([n]) => n);
   const placeholders = colNames.map(() => '?').join(', ');
   // OR IGNORE: external feeds occasionally violate PK uniqueness (duplicate
   // stop_id rows for parent stations etc.); we drop dupes rather than error.
   const stmt = db.prepare(`INSERT OR IGNORE INTO ${tableName} (${colNames.join(', ')}) VALUES (${placeholders})`);
-  const insertBatch = db.transaction((batch) => {
+  const insertBatch = db.transaction((batch: Array<Record<string, string>>) => {
     for (const row of batch) {
       const values = colNames.map((c) => {
         const v = row[c];
@@ -258,7 +268,7 @@ function makeRowInserter(db, tableName, columns) {
   return insertBatch;
 }
 
-function insertRows(db, tableName, columns, rows) {
+function insertRows(db: Database.Database, tableName: string, columns: ColumnSpec[], rows: Array<Record<string, string>>): number {
   if (!rows || rows.length === 0) return 0;
   makeRowInserter(db, tableName, columns)(rows);
   return rows.length;
@@ -269,10 +279,16 @@ const INSERT_BATCH_SIZE = 5000;
 // progress line every ~250k rows plus a final total.
 const PROGRESS_EVERY = 250_000;
 
-async function streamRowsIntoTable(db, tableName, columns, source, { feedId } = {}) {
+async function streamRowsIntoTable(
+  db: Database.Database,
+  tableName: string,
+  columns: ColumnSpec[],
+  source: AsyncGenerator<Record<string, string>>,
+  { feedId }: { feedId?: string } = {},
+): Promise<number> {
   const insertBatch = makeRowInserter(db, tableName, columns);
   const started = Date.now();
-  let batch = [];
+  let batch: Array<Record<string, string>> = [];
   let total = 0;
   let nextProgress = PROGRESS_EVERY;
   const tag = feedId ? `[make-sqlite] ${feedId}` : '[make-sqlite]';
@@ -297,12 +313,7 @@ async function streamRowsIntoTable(db, tableName, columns, source, { feedId } = 
   return total;
 }
 
-/**
- * @param {string} gtfsZipPath  absolute path to a GTFS .zip
- * @param {string} feedId       e.g. "cluj-napoca"
- * @returns {Promise<{ localPath: string, sizeBytes: number, hash: string } | null>}
- */
-export async function makeSqlite(gtfsZipPath, feedId) {
+export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<SqliteFile | null> {
   mkdirSync(OUTPUTS, { recursive: true });
   const dbPath = join(OUTPUTS, `${feedId}.sqlite3`);
   const gzPath = `${dbPath}.gz`;
@@ -327,7 +338,7 @@ export async function makeSqlite(gtfsZipPath, feedId) {
 
   try {
     createSchema(db);
-    const stats = {};
+    const stats: Record<string, number> = {};
 
     // Tables that need the full row set in memory before insertion because
     // a post-processing step reads them (route-color quirk fixer, network
@@ -335,19 +346,19 @@ export async function makeSqlite(gtfsZipPath, feedId) {
     const BUFFERED = new Set(['routes', 'networks', 'route_networks']);
 
     // Collected during the loop for post-processing.
-    let routeRows = null;
-    let networkRows = null;
-    let routeNetworkRows = null;
+    let routeRows: Array<Record<string, unknown>> | null = null;
+    let networkRows: Array<Record<string, unknown>> | null = null;
+    let routeNetworkRows: Array<Record<string, unknown>> | null = null;
 
     for (const [tableName, spec] of Object.entries(SCHEMA)) {
       if (!(await entryExists(zip, spec.file))) continue;
 
       if (BUFFERED.has(tableName)) {
-        let rows = await collectCsvRows(zip, spec.file);
+        let rows: Array<Record<string, string>> = await collectCsvRows(zip, spec.file);
         if (tableName === 'routes') {
           const result = resolveRouteColors(rows);
-          rows = result.rows;
-          routeRows = rows;
+          rows = result.rows as Array<Record<string, string>>;
+          routeRows = result.rows;
           for (const line of result.logs) {
             console.log(`[make-sqlite] ${feedId}: routes — ${line}`);
           }
@@ -385,7 +396,7 @@ export async function makeSqlite(gtfsZipPath, feedId) {
     // Compute and persist network chip colors. All color math lives here
     // in the pipeline — the app reads the pre-computed value verbatim.
     if (networkRows && networkRows.length > 0) {
-      const colors = computeNetworkColors(routeRows ?? [], routeNetworkRows ?? [], networkRows);
+      const colors = computeNetworkColors(routeRows as never, routeNetworkRows as never, networkRows as never);
       const updateColor = db.prepare('UPDATE networks SET network_color = ? WHERE network_id = ?');
       db.transaction(() => {
         for (const [netId, color] of colors) updateColor.run(color, netId);
@@ -396,7 +407,7 @@ export async function makeSqlite(gtfsZipPath, feedId) {
     // Write per-feed config to _neary_config from the feed's config.json.
     const configPath = join(ROOT, 'feeds', feedId, 'config.json');
     if (existsSync(configPath)) {
-      const feedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+      const feedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as { timing?: unknown };
       if (feedConfig.timing) {
         db.prepare('INSERT INTO _neary_config (key, value) VALUES (?, ?)')
           .run('timing', JSON.stringify(feedConfig.timing));

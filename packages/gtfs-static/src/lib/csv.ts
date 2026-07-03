@@ -1,5 +1,5 @@
 /**
- * Tiny GTFS-CSV parser. Shared by derive-bbox.js and the feed seed loaders.
+ * Tiny GTFS-CSV parser. Shared by derive-bbox.ts and the feed seed loaders.
  *
  * GTFS we honour:
  *   - First non-empty line is the header
@@ -11,27 +11,35 @@
  *   - Multi-line quoted fields
  */
 
-export function parseCsv(text) {
+export type CsvRow = Record<string, string>;
+
+export function parseCsv(text: string): CsvRow[] {
   const lines = text.split(/\r?\n/);
   let i = 0;
-  while (i < lines.length && lines[i].trim().length === 0) i++;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line === undefined || line.trim().length === 0) { i++; continue; }
+    break;
+  }
   if (i >= lines.length) return [];
-  if (lines[i].charCodeAt(0) === 0xfeff) lines[i] = lines[i].slice(1);
+  const firstLine = lines[i]!;
+  if (firstLine.charCodeAt(0) === 0xfeff) lines[i] = firstLine.slice(1);
 
-  const header = splitLine(lines[i]);
-  const out = [];
+  const header = splitLine(lines[i]!);
+  const out: CsvRow[] = [];
   for (let j = i + 1; j < lines.length; j++) {
-    if (lines[j].length === 0) continue;
-    const cols = splitLine(lines[j]);
-    const row = {};
-    for (let k = 0; k < header.length; k++) row[header[k]] = cols[k] ?? '';
+    const rawLine = lines[j];
+    if (rawLine === undefined || rawLine.length === 0) continue;
+    const cols = splitLine(rawLine);
+    const row: CsvRow = {};
+    for (let k = 0; k < header.length; k++) row[header[k]!] = cols[k] ?? '';
     out.push(row);
   }
   return out;
 }
 
-function splitLine(line) {
-  const out = [];
+function splitLine(line: string): string[] {
+  const out: string[] = [];
   let cur = '';
   let inQuotes = false;
   for (let i = 0; i < line.length; i++) {

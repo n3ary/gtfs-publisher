@@ -27,10 +27,17 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
 
       - name: Auto-bump version to main + 1
         uses: ciotlosm/neary-shared/.github/actions/version-bump@v1
@@ -42,7 +49,7 @@ jobs:
           bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
 
       - name: Run tests
-        run: npm test
+        run: pnpm test
 
       - name: Skip heavy checks for metadata-only changes
         id: skip-heavy
@@ -51,17 +58,12 @@ jobs:
         # metadata. Tests still run above, and the version-bump
         # action also skips itself for the same paths. Same paths as
         # `paths-ignore` on the daily.yml workflow.
-        # GITHUB_OUTPUT format requires `key=value` per line, no newlines.
-        # Each path is matched as a prefix (any depth under docs/, .github/,
-        # outputs/), not as an exact filename match — the previous regex
-        # only matched files DIRECTLY under those dirs, missing
-        # docs/standards/version-management.md.
         run: |
           NON_META=""
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
-              docs/*|.github/*|.gitignore|LICENSE|outputs/*) : ;;  # metadata
+              docs/*|.github/*|.gitignore|LICENSE|outputs/*|packages/*/outputs/*|pnpm-lock.yaml|tsconfig*.json|packages/*/tsconfig.json) : ;;  # metadata
               *) NON_META="$NON_META $f" ;;
             esac
           done < <(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
@@ -78,4 +80,4 @@ jobs:
         # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
         # produce outputs/feeds.json + outputs/*.sqlite3.gz without
         # uploading to R2.
-        run: SKIP_PUBLISH=1 npm run pipeline
+        run: SKIP_PUBLISH=1 pnpm pipeline

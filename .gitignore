@@ -1,4 +1,7 @@
 node_modules/
-outputs/
+packages/*/outputs/
+packages/*/dist/
 *.log
 .env
+.tsbuildinfo
+*.tsbuildinfo

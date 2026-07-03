@@ -1,13 +1,8 @@
 /**
- * make-app-registry.js — emit outputs/feeds.json (the app-facing index).
+ * make-app-registry.ts — emit outputs/feeds.json (the app-facing index).
  *
- * Validates against schemas/feeds.schema.json using Ajv's draft-2020 mode
+ * Validates against schema/feeds.schema.json using Ajv's draft-2020 mode
  * so a malformed registry fails the build before publish.
- *
- * Per-entry shape:
- *   - fresh entries: { feed, gtfs, sqlite, bbox, center, agencies, timezone,
- *                      validity, upstreamEtag }
- *   - reused entries: { reused: true, prevEntry: <previous feeds.json entry> }
  */
 
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -16,12 +11,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..', '..');
-const OUTPUTS = join(ROOT, 'outputs');
-const SCHEMA_PATH = join(ROOT, 'schemas', 'feeds.schema.json');
+import { OUTPUTS } from './fetch-gtfs.js';
+import type { FeedEntry } from './lib/types.js';
 
-export function makeAppRegistry(feedEntries) {
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
+const SCHEMA_PATH = join(ROOT, 'src', 'schema', 'feeds.schema.json');
+
+export function makeAppRegistry(feedEntries: FeedEntry[]): unknown {
   const generatedAt = new Date().toISOString();
 
   const registry = {
@@ -32,7 +29,7 @@ export function makeAppRegistry(feedEntries) {
       // `generated_at` reflects when the underlying data was actually
       // produced, not when we re-verified, which is the more useful
       // value for downstream freshness checks.
-      if (e.reused) return e.prevEntry;
+      if ('reused' in e) return e.prevEntry;
 
       const f = e.feed;
       return {

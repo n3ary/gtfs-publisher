@@ -1,5 +1,5 @@
 /**
- * derive-bbox.js — read a few .txt entries from a GTFS .zip and return:
+ * derive-bbox.ts — read a few .txt entries from a GTFS .zip and return:
  *   - bbox: { minLat, minLon, maxLat, maxLon }
  *   - center: bbox midpoint
  *   - agencies: parsed from agency.txt
@@ -13,8 +13,9 @@
 import { spawnSync } from 'node:child_process';
 
 import { parseCsv } from './lib/csv.js';
+import type { DerivedMeta } from './lib/types.js';
 
-function readEntry(zipPath, entryName) {
+function readEntry(zipPath: string, entryName: string): string | null {
   const res = spawnSync('unzip', ['-p', zipPath, entryName], {
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
@@ -24,7 +25,7 @@ function readEntry(zipPath, entryName) {
   return res.stdout || null;
 }
 
-export function deriveBbox(zipPath) {
+export function deriveBbox(zipPath: string): DerivedMeta {
   // ---- stops.txt → bbox ----
   const stopsCsv = readEntry(zipPath, 'stops.txt');
   if (!stopsCsv) throw new Error(`${zipPath}: stops.txt missing`);
@@ -33,8 +34,8 @@ export function deriveBbox(zipPath) {
   let minLat = Infinity, minLon = Infinity, maxLat = -Infinity, maxLon = -Infinity;
   let n = 0;
   for (const s of stops) {
-    const lat = parseFloat(s.stop_lat);
-    const lon = parseFloat(s.stop_lon);
+    const lat = parseFloat(s.stop_lat ?? '');
+    const lon = parseFloat(s.stop_lon ?? '');
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
     if (lat === 0 && lon === 0) continue;
     if (lat < minLat) minLat = lat;
@@ -46,7 +47,7 @@ export function deriveBbox(zipPath) {
   if (n === 0) throw new Error(`${zipPath}: no stops with valid coordinates`);
 
   // round to 5 decimals (~1 m precision) — keeps feeds.json tidy
-  const round = (x) => Math.round(x * 1e5) / 1e5;
+  const round = (x: number) => Math.round(x * 1e5) / 1e5;
   const bbox = {
     minLat: round(minLat),
     minLon: round(minLon),
@@ -65,19 +66,19 @@ export function deriveBbox(zipPath) {
     .filter((a) => a.agency_name && a.agency_name.trim() !== '')
     .map((a) => ({
       agency_id: a.agency_id || null,
-      agency_name: a.agency_name,
+      agency_name: a.agency_name!,
       agency_url: a.agency_url || null,
     }));
   const timezone = agencyRows.find((a) => a.agency_timezone)?.agency_timezone ?? null;
 
   // ---- feed_info.txt → validity / timezone (optional) ----
   const feedInfoCsv = readEntry(zipPath, 'feed_info.txt');
-  let validity = { from: null, until: null };
+  let validity: DerivedMeta['validity'] = { from: null, until: null };
   if (feedInfoCsv) {
     const rows = parseCsv(feedInfoCsv);
     if (rows.length > 0) {
-      const r = rows[0];
-      const fmt = (gtfsDate) => {
+      const r = rows[0]!;
+      const fmt = (gtfsDate: string | undefined) => {
         if (!gtfsDate || gtfsDate.length !== 8) return null;
         return `${gtfsDate.slice(0, 4)}-${gtfsDate.slice(4, 6)}-${gtfsDate.slice(6, 8)}`;
       };
