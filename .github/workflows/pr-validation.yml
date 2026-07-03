@@ -44,7 +44,26 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Skip heavy checks for metadata-only changes
+        id: skip-heavy
+        # Skip the full pipeline (which fetches upstream sources and is
+        # the slowest step at ~7-10 min) when the PR only changes
+        # metadata. Tests still run above, and the version-bump
+        # action also skips itself for the same paths. Same paths as
+        # `paths-ignore` on the daily.yml workflow.
+        # GITHUB_OUTPUT format requires `key=value` per line, no newlines.
+        run: |
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD | tr '\n' ' ')
+          if echo "$CHANGED" | grep -qE '[^[:space:]]' && echo "$CHANGED" | grep -vqE '(^| )(docs/|\.github/|\.gitignore|LICENSE|outputs/[^ ]+)( |$)'; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "reason=non-metadata changes present" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=metadata-only diff" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run pipeline (smoke check)
+        if: steps.skip-heavy.outputs.skip != 'true'
         # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
         # produce outputs/feeds.json + outputs/*.sqlite3.gz without
         # uploading to R2.

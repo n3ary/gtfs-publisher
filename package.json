@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.2-m1",
+  "version": "0.2.3-m1",
   "private": true,
   "type": "module",
   "description": "App-side GTFS → SQLite + feeds.json registry for the neary PWA",
