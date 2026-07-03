@@ -52,15 +52,17 @@ jobs:
         # action also skips itself for the same paths. Same paths as
         # `paths-ignore` on the daily.yml workflow.
         run: |
-          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
-          NON_META=$(echo "$CHANGED" | grep -vE '^(docs/|\.github/|\.gitignore|LICENSE|outputs/.*)$' || true)
-          if [ -z "$NON_META" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "PR touches only metadata — skipping pipeline smoke + validate will pass without it."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Non-metadata changes: $NON_META"
-          fi
+          {
+            CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+            if echo "$CHANGED" | grep -vqE '^(docs/|\.github/|\.gitignore|LICENSE|outputs/.*)$'; then
+              echo "skip=false"
+              echo "Non-metadata changes:"
+              echo "$CHANGED"
+            else
+              echo "skip=true"
+              echo "PR touches only metadata — skipping pipeline smoke + validate will pass without it."
+            fi
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run pipeline (smoke check)
         if: steps.skip-heavy.outputs.skip != 'true'
