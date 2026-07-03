@@ -1,8 +1,8 @@
 {
-  "name": "@neary-gtfs/shared",
+  "name": "@neary-gtfs/spec",
   "version": "0.1.0",
   "private": true,
-  "description": "GTFS spec types, CSV readers, SQLite DDL — strictly GTFS, no per-feed knowledge.",
+  "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./spec": {
+      "types": "./dist/spec/index.d.ts",
+      "import": "./dist/spec/index.js"
     },
     "./schema": {
       "types": "./dist/schema/index.d.ts",
@@ -22,6 +26,7 @@
     "lint": "echo 'no lint yet' && exit 0"
   },
   "dependencies": {
+    "csv-parse": "^7.0.1",
     "zod": "^4.4.0"
   },
   "devDependencies": {
