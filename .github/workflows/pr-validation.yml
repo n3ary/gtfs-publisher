@@ -1,0 +1,51 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+# Ensure the PR is up-to-date before merging (protects version sequencing).
+# GitHub branch protection "Require branches to be up to date" enforces this
+# at the merge button level; this workflow re-validates on every push.
+
+permissions:
+  contents: write  # needed by the version-bump action to push the bot commit
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Auto-bump version to main + 1
+        uses: ciotlosm/neary-shared/.github/actions/version-bump@v1
+        with:
+          # Skip the bump when the PR touches only docs/, .github/,
+          # .gitignore, or LICENSE. (default already covers .github/,
+          # .gitignore, LICENSE; explicitly including docs/ to match
+          # this repo's pipeline paths-ignore semantics).
+          bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run pipeline (smoke check)
+        # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
+        # produce outputs/feeds.json + outputs/*.sqlite3.gz without
+        # uploading to R2.
+        run: SKIP_PUBLISH=1 npm run pipeline

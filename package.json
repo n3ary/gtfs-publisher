@@ -1,13 +1,12 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.0-m1",
+  "version": "0.2.1-m1",
   "private": true,
   "type": "module",
   "description": "App-side GTFS → SQLite + feeds.json registry for the neary PWA",
   "scripts": {
     "pipeline": "node src/pipeline/build-all.js",
-    "test": "vitest --run --passWithNoTests",
-    "lint": "eslint src/ feeds/"
+    "test": "vitest --run --passWithNoTests"
   },
   "engines": {
     "node": ">=24"

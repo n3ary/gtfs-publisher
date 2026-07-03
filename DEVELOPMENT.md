@@ -2,7 +2,7 @@
 
 ## Contributing
 
-`main` is protected — every change goes through a PR.
+`main` is protected — every change goes through a PR. See [docs/standards/version-management.md](docs/standards/version-management.md) for the bump-on-PR rule.
 
 ```bash
 git checkout -b <type>/<short-description>
@@ -12,10 +12,7 @@ gh pr create --fill
 gh pr merge --squash --delete-branch
 ```
 
-Push to `main` (PR merge or direct) auto-triggers the pipeline via
-[`.github/workflows/daily.yml`](.github/workflows/daily.yml). Docs-only
-PRs (`**/*.md`, `.gitignore`, `LICENSE`) are excluded via `paths-ignore`
-so README edits don't churn the R2 bucket.
+The PR-validation workflow ([`.github/workflows/pr-validation.yml`](.github/workflows/pr-validation.yml)) runs on every PR, bumps `package.json#version` if needed, and runs the test/lint/pipeline smoke. Push to `main` (via the squash-merge) auto-triggers the daily pipeline via [`.github/workflows/daily.yml`](.github/workflows/daily.yml). Docs-only PRs (`docs/**`, `.gitignore`, `LICENSE`) are excluded from the bump and from the daily pipeline via `paths-ignore` so README edits don't churn the R2 bucket.
 
 Branch protection:
 - PR required, 0 approvals (solo-dev friendly)
