@@ -1,30 +1,25 @@
 /**
- * Shared types for the static pipeline.
+ * Pipeline-orchestration types. NOT published as part of the
+ * `@ciotlosm/neary-gtfs-core` library — these describe how the
+ * static pipeline sources, derives metadata for, and serializes a
+ * feed entry, which is specific to this repo's build logic.
  *
- * These mirror the GTFS spec and the shape the app expects in feeds.json.
- * Kept here (not in @neary-gtfs/shared yet) until issue #34 step 3
- * promotes them.
+ * Pure GTFS-spec types (Agency, Bbox/Center/Validity, Realtime,
+ * License) moved to `@neary-gtfs/shared` in issue #34 step 3.
+ * Re-exported here so existing import paths keep working.
  */
 
-export type SourceType = 'transitous' | 'mobility-database' | 'remote';
+import type { Agency, Bbox, Center, Realtime, Validity, License } from '@neary-gtfs/shared';
 
-export type Realtime = {
-  vehicle_positions?: string;
-  trip_updates?: string;
-  service_alerts?: string;
-};
+export type { Agency, Bbox, Center, Realtime, Validity, License };
+
+export type SourceType = 'transitous' | 'mobility-database' | 'remote';
 
 export type FeedSource = {
   type: SourceType;
   publisher: string;
   upstream_url: string | null;
   upstream_etag?: string | null;
-};
-
-export type License = {
-  spdx_identifier: string | null;
-  attribution_text: string;
-  attribution_url: string | null;
 };
 
 export type Feed = {
@@ -35,18 +30,12 @@ export type Feed = {
   timezone: string | null;
   languages: string[];
   source: FeedSource;
-  agencies: Array<{ agency_id: string | null; agency_name: string; agency_url: string | null }>;
+  agencies: Agency[];
   realtime: Realtime | null;
   license: License;
   _smoke?: { expectedPublisher?: string; tripIdPattern?: string } | null;
   _currentEtag?: string | null;
 };
-
-export type Agency = { agency_id: string | null; agency_name: string; agency_url: string | null };
-
-export type Bbox = { minLat: number; minLon: number; maxLat: number; maxLon: number };
-export type Center = { lat: number; lon: number };
-export type Validity = { from: string | null; until: string | null };
 
 export type DerivedMeta = {
   bbox: Bbox;

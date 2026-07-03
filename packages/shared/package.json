@@ -1,8 +1,8 @@
 {
   "name": "@neary-gtfs/shared",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "GTFS spec types, CSV readers, SQLite DDL — strictly GTFS, no per-feed knowledge. Placeholder until issue #34 step 3 populates it.",
+  "description": "GTFS spec types, CSV readers, SQLite DDL — strictly GTFS, no per-feed knowledge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,14 +10,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "echo 'no tests yet' && exit 0",
+    "test": "vitest --run --passWithNoTests",
     "lint": "echo 'no lint yet' && exit 0"
   },
+  "dependencies": {
+    "zod": "^4.4.0"
+  },
   "devDependencies": {
-    "typescript": "^6.0.0"
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
   }
 }
