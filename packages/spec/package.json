@@ -1,6 +1,6 @@
 {
   "name": "@n3ary/neary-gtfs-spec",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
@@ -22,6 +22,10 @@
     "./sql": {
       "types": "./dist/sql/index.d.ts",
       "import": "./dist/sql/index.js"
+    },
+    "./shape": {
+      "types": "./dist/shape/index.d.ts",
+      "import": "./dist/shape/index.js"
     }
   },
   "scripts": {
