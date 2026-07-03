@@ -17,6 +17,6 @@
     "lint": "pnpm -r --parallel lint"
   },
   "devDependencies": {
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.0"
   }
 }
