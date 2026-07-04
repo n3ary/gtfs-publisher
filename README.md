@@ -49,6 +49,10 @@ npm test           # vitest --run --passWithNoTests
 
 The visual identity (logo, favicon, social card, wordmarks) lives in the canonical [n3ary/branding](https://github.com/n3ary/branding) repo and is served at <https://branding.n3ary.com>. This repo doesn't ship any brand assets — if you need the GitHub org avatar, the repo social preview, or a logo, pull from there (see [the SETUP.md there](https://github.com/n3ary/branding/blob/main/SETUP.md) for the URL map).
 
-## License
+## Data license
 
 Schedule data © its respective transit operators (per-feed `license.attribution_text` in `feeds.json`). Generated for public transit information purposes.
+
+## License
+
+[PolyForm Noncommercial License 1.0.0](./LICENSE) — free for individuals, hobbyists, education, research, and charitable organizations. Any commercial use (paid products, paid services, or hosted services for revenue) needs a separate license from the author. See the LICENSE file for the full terms.
