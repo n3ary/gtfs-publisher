@@ -36,3 +36,24 @@ export type CalendarRow = z.infer<typeof CalendarRowSchema>;
 export const parseCalendar = (text: string): CalendarRow[] => parseRows(CalendarRowSchema, text);
 export const parseCalendarStream = (source: AsyncIterable<string>): AsyncIterable<CalendarRow> =>
   parseRowsStream(CalendarRowSchema, source);
+
+/**
+ * GTFS calendar.txt day-of-week column names, in GTFS week order
+ * (Monday = 0, Sunday = 6). Consumers index with `(date.getDay() + 6) % 7`
+ * to convert from `Date.getDay()`'s Sunday-first ordering.
+ *
+ * Exported as a `readonly` tuple so consumers get the exact literal
+ * type, not just `string[]` — that lets queries parameterise on
+ * `keyof CalendarRowSchema['shape']` etc.
+ */
+export const DAY_KEY_COLS = [
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+] as const;
+
+export type DayKey = (typeof DAY_KEY_COLS)[number];
