@@ -5,3 +5,11 @@ packages/*/dist/
 .env
 .tsbuildinfo
 *.tsbuildinfo
+
+# macOS Finder metadata (created by desktop folder views)
+.DS_Store
+
+# Per-user state from local AI editor sessions — never committed.
+.kiro/
+.claude/
+.kilo/worktrees/
