@@ -51,7 +51,7 @@ pnpm build              # build all packages once before first run
 Root-level proxy commands (work from repo root):
 
 ```bash
-pnpm run pipeline       # → pnpm --filter @neary-gtfs/static pipeline
+pnpm run pipeline       # → pnpm --filter @gtfs/static pipeline
 pnpm test               # → vitest --run across all packages
 pnpm build              # → tsc across all packages
 ```
