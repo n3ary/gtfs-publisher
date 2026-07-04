@@ -13,3 +13,5 @@ packages/*/dist/
 .kiro/
 .claude/
 .kilo/worktrees/
+# CI deploy bundle (Cloudflare Pages) — never committed
+deploy/
