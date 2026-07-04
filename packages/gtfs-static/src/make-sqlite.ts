@@ -11,6 +11,14 @@
  *     so the R2 URL is content-addressed — clients never fetch stale
  *     bytes from a browser cache after a content change.
  *   - No manifest written — feeds.json carries all the metadata
+ *
+ * Per-feed additions (`ALTER TABLE` columns, internal tables, computed
+ * values) come in through the optional third argument `StaticExtension`
+ * — see ./lib/extension.ts. Without it, the build falls back to the
+ * legacy producer-only defaults (network_color column, _neary_config
+ * table, network color computed from routes + networks). Those defaults
+ * exist only so current callers (the CLI, the in-tree tests) keep
+ * working; new adapter-based callers pass their own extension object.
  */
 
 import Database from 'better-sqlite3';
@@ -26,6 +34,7 @@ import { createHash } from 'node:crypto';
 
 import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js';
 import type { SqliteFile } from './lib/types.js';
+import type { StaticExtension, ColumnExtension, TableExtension } from './lib/extension.js';
 import { OUTPUTS } from './fetch-gtfs.js';
 import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@n3ary/gtfs-spec/sql';
 import { COLUMN_EXTENSIONS, TABLE_EXTENSIONS } from './extensions.js';
@@ -36,9 +45,9 @@ const ROOT = join(__dirname, '..');
 // The spec DDL is the canonical contract for the 11 standard GTFS
 // Schedule tables (agency, stops, routes, trips, stop_times, calendar,
 // calendar_dates, shapes, feed_info, networks, route_networks).
-// Producer-only extras — the computed network_color column + the
-// _neary_config metadata table — live in ./extensions.ts and are
-// applied after the spec schema. See ./extensions.ts for why.
+// Per-feed additions come in via the `extensions` argument to
+// makeSqlite(); without it the legacy producer-only defaults from
+// ./extensions.ts run (see ./lib/extension.ts for the new contract).
 
 // GTFS `stop_times.txt` and `shapes.txt` routinely exceed 500 MB
 // uncompressed on national feeds. Node's max string length is
@@ -83,7 +92,7 @@ async function collectCsvRows(zip: StreamZip.StreamZipAsync, filename: string): 
   return rows;
 }
 
-function createSchema(db: Database.Database): void {
+function createSchema(db: Database.Database, extensions?: StaticExtension): void {
   // 1. Spec DDL — all 11 public GTFS Schedule tables, applied as the
   //    shared @n3ary/gtfs-spec/sql SCHEMA object so static and (later)
   //    the gtfs-rt package agree on the same shape.
@@ -97,19 +106,52 @@ function createSchema(db: Database.Database): void {
       db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
     }
   }
-  // 2. Producer column extensions — ALTER TABLE <spec_table> ADD COLUMN.
-  //    Must run after the spec DDL (the target tables must exist).
-  for (const { table, column } of COLUMN_EXTENSIONS) {
+  // 2. Column extensions — ALTER TABLE <spec_table> ADD COLUMN. Must run
+  //    after the spec DDL (target tables must exist). Sources, in order:
+  //      a) caller-supplied `extensions.columnExtensions`,
+  //      b) legacy producer-only defaults from ./extensions.ts.
+  const columnExtensions: ReadonlyArray<ColumnExtension> =
+    extensions?.columnExtensions ?? COLUMN_EXTENSIONS;
+  for (const { table, column } of columnExtensions) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column[0]} ${column[1]};`);
   }
-  // 3. Producer table extensions — pipeline-internal tables that
-  //    aren't part of any GTFS feed (e.g. _neary_config).
-  for (const [tableName, spec] of Object.entries(TABLE_EXTENSIONS)) {
-    const cols = spec.columns.map(([n, t]) => `${n} ${t}`).join(', ');
+  // 3. Table extensions — pipeline-internal tables that aren't part of
+  //    any GTFS feed (e.g. _neary_config). Sources, same precedence.
+  const tableExtensions: Readonly<Record<string, TableExtension>> | undefined = extensions?.tableExtensions;
+  const tableEntries: Array<[string, { columns: ColumnSpec[]; rows?: ReadonlyArray<Record<string, unknown>> }]> = tableExtensions
+    ? Object.entries(tableExtensions)
+    : Object.entries(TABLE_EXTENSIONS).map(([name, spec]) => [name, { columns: spec.columns }]);
+  for (const [tableName, ext] of tableEntries) {
+    const cols = ext.columns.map(([n, t]) => `${n} ${t}`).join(', ');
     db.exec(`CREATE TABLE ${tableName} (${cols});`);
-    for (const [idxName, idxCols] of spec.indexes ?? []) {
-      db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
-    }
+  }
+}
+
+/**
+ * Insert pre-computed rows into table extensions. Run after the spec
+ * tables are loaded and after `fillComputedColumns` so the hook can
+ * order data relative to it. Skipped when extensions is undefined (the
+ * legacy default writes its own `_neary_config` rows from
+ * `feeds/<id>/config.json` — see below).
+ */
+function insertTableExtensionRows(
+  db: Database.Database,
+  extensions: StaticExtension | undefined,
+  tag: string,
+): void {
+  if (!extensions?.tableExtensions) return;
+  for (const [tableName, ext] of Object.entries(extensions.tableExtensions)) {
+    if (!ext.rows || ext.rows.length === 0) continue;
+    const cols = ext.columns.map(([n]) => n);
+    const placeholders = cols.map(() => '?').join(', ');
+    const stmt = db.prepare(`INSERT OR IGNORE INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`);
+    const insertBatch = db.transaction((rows: ReadonlyArray<Record<string, unknown>>) => {
+      for (const row of rows) {
+        stmt.run(cols.map((c) => row[c] ?? null));
+      }
+    });
+    insertBatch(ext.rows);
+    console.log(`${tag}: ${tableName} — ${ext.rows.length} extension row(s) inserted`);
   }
 }
 
@@ -176,7 +218,11 @@ async function streamRowsIntoTable(
   return total;
 }
 
-export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<SqliteFile | null> {
+export async function makeSqlite(
+  gtfsZipPath: string,
+  feedId: string,
+  extensions?: StaticExtension,
+): Promise<SqliteFile | null> {
   mkdirSync(OUTPUTS, { recursive: true });
   const dbPath = join(OUTPUTS, `${feedId}.sqlite3`);
   const gzPath = `${dbPath}.gz`;
@@ -200,7 +246,7 @@ export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<S
   db.pragma('temp_store = MEMORY');
 
   try {
-    createSchema(db);
+    createSchema(db, extensions);
     const stats: Record<string, number> = {};
 
     // Tables that need the full row set in memory before insertion because
@@ -261,25 +307,42 @@ export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<S
       );
     }
 
-    // Compute and persist network chip colors. All color math lives here
-    // in the pipeline — the app reads the pre-computed value verbatim.
-    if (networkRows && networkRows.length > 0) {
-      const colors = computeNetworkColors(routeRows as never, routeNetworkRows as never, networkRows as never);
-      const updateColor = db.prepare('UPDATE networks SET network_color = ? WHERE network_id = ?');
-      db.transaction(() => {
-        for (const [netId, color] of colors) updateColor.run(color, netId);
-      })();
-      console.log(`[make-sqlite] ${feedId}: network colors — ${[...colors.entries()].map(([id, c]) => `${id}=#${c}`).join(', ')}`);
-    }
+    // Per-feed additions: either the caller's hook (preferred — adapter
+    // owns the algorithm) or the legacy producer-only defaults (kept so
+    // the CLI and existing in-tree tests work without an adapter).
+    if (extensions?.fillComputedColumns) {
+      await extensions.fillComputedColumns(db, {
+        feedId,
+        routes: (routeRows ?? []) as ReadonlyArray<Record<string, unknown>>,
+        networks: (networkRows ?? []) as ReadonlyArray<Record<string, unknown>>,
+        routeNetworks: (routeNetworkRows ?? []) as ReadonlyArray<Record<string, unknown>>,
+      });
+      insertTableExtensionRows(db, extensions, `[make-sqlite] ${feedId}`);
+    } else {
+      // Compute and persist network chip colors. All color math lives
+      // here in the pipeline — the app reads the pre-computed value
+      // verbatim. (Legacy producer-only path; the adapter equivalent
+      // replaces this with `fillComputedColumns`.)
+      if (networkRows && networkRows.length > 0) {
+        const colors = computeNetworkColors(routeRows as never, routeNetworkRows as never, networkRows as never);
+        const updateColor = db.prepare('UPDATE networks SET network_color = ? WHERE network_id = ?');
+        db.transaction(() => {
+          for (const [netId, color] of colors) updateColor.run(color, netId);
+        })();
+        console.log(`[make-sqlite] ${feedId}: network colors — ${[...colors.entries()].map(([id, c]) => `${id}=#${c}`).join(', ')}`);
+      }
 
-    // Write per-feed config to _neary_config from the feed's config.json.
-    const configPath = join(ROOT, 'feeds', feedId, 'config.json');
-    if (existsSync(configPath)) {
-      const feedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as { timing?: unknown };
-      if (feedConfig.timing) {
-        db.prepare('INSERT INTO _neary_config (key, value) VALUES (?, ?)')
-          .run('timing', JSON.stringify(feedConfig.timing));
-        console.log(`[make-sqlite] ${feedId}: wrote timing config to _neary_config`);
+      // Write per-feed config to _neary_config from the feed's config.json.
+      // Legacy producer-only path — adapter-driven builds supply the
+      // rows via `tableExtensions._neary_config.rows` instead.
+      const configPath = join(ROOT, 'feeds', feedId, 'config.json');
+      if (existsSync(configPath)) {
+        const feedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as { timing?: unknown };
+        if (feedConfig.timing) {
+          db.prepare('INSERT INTO _neary_config (key, value) VALUES (?, ?)')
+            .run('timing', JSON.stringify(feedConfig.timing));
+          console.log(`[make-sqlite] ${feedId}: wrote timing config to _neary_config`);
+        }
       }
     }
 
