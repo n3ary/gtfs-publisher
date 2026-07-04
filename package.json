@@ -19,5 +19,6 @@
   },
   "devDependencies": {
     "typescript": "^6.0.0"
-  }
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
 }
