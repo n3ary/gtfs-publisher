@@ -7,7 +7,7 @@
  *                     validate     (remote only — light spec-shape check)
  *                     smoke        (remote only — per-feed contract check)
  *                     derive-bbox  (read stops/agency/feed_info.txt)
- *                     make-sqlite  (gtfs.zip → sqlite3.gz)
+ *                     make-sqlite  (gtfs.zip → sqlite3.gz) + per-feed StaticExtension
  *   3. make-app-registry → outputs/feeds.json (schema-validated)
  *
  * Output layout (under `outputs/`):
@@ -15,9 +15,18 @@
  *   outputs/<id>-<hash12>.sqlite3.gz  — content-addressed URL
  *
  * Publish: .github/workflows/daily.yml uploads outputs/ to Cloudflare R2.
+ *
+ * Per-feed `StaticExtension` knowledge comes from the matching
+ * `@n3ary/gtfs-adapter-<feed>` package (e.g. cluj-napoca → the static
+ * pipeline color fixup + the `_neary_config` rows from
+ * `feeds/<id>/config.json`'s `timing` block). See
+ * `n3ary/gtfs-adapters/adapters/<feed>/src/static/`. The generic
+ * pipeline owns no per-feed defaults.
  */
 
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { resolveFeeds } from './resolve-feeds.js';
 import { fetchGtfs, OUTPUTS } from './fetch-gtfs.js';
@@ -27,7 +36,48 @@ import { makeAppRegistry } from './make-app-registry.js';
 import { validate } from './validate.js';
 import { smokeTestRemote } from './smoke-remote.js';
 import { UA } from './lib/http.js';
+import type { StaticExtension } from './lib/extension.js';
 import type { Feed, FeedEntry, FreshEntry } from './lib/types.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
+
+// adapter lookup — explicit, feed-id-keyed. Maps each known feed to a
+// function that constructs its `StaticExtension` from the feed's
+// `feeds/<id>/config.json` (loaded by `loadFeedConfig`). Each adapter
+// is imported lazily so the import cost is paid only for feeds that
+// use it (currently just cluj). Future feeds plug in here, or move to
+// a manifest-driven registry once gtfs-adapters exposes one.
+async function buildStaticExtension(feedId: string, feedConfig: Record<string, unknown> | null): Promise<StaticExtension | undefined> {
+  if (!feedConfig) return undefined;
+  switch (feedId) {
+    case 'cluj-napoca': {
+      const mod = await import('@n3ary/gtfs-adapter-cluj-napoca/static');
+      return mod.clujStaticExtension(feedConfig);
+    }
+    // Future per-feed adapters wire in here. Each adapter's package
+    // declares its own `staticExtension(feedConfig)` shape; the
+    // generic pipeline just passes whatever the function returns.
+    default:
+      return undefined;
+  }
+}
+
+function loadFeedConfig(feedId: string): Record<string, unknown> | null {
+  // The feed override directory (feeds/<id>/config.json) is
+  // the per-feed manifest. The cluj adapter's `clujStaticExtension`
+  // reads its `timing` block. Other feeds may have other keys that
+  // their adapters read; both sides know about the same file because
+  // the file is committed alongside the pipeline that uses it.
+  const configPath = join(ROOT, 'feeds', feedId, 'config.json');
+  if (!existsSync(configPath)) return null;
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+  } catch (err) {
+    console.warn(`[cli] ${feedId}: failed to parse ${configPath} — ${(err as Error).message}`);
+    return null;
+  }
+}
 
 const DEFAULT_PUBLIC_BASE_URL = 'https://gtfs.n3ary.com';
 const PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL ?? DEFAULT_PUBLIC_BASE_URL).replace(/\/+$/, '');
@@ -111,7 +161,9 @@ async function main(): Promise<void> {
       }
 
       const meta = deriveBbox(gtfs.localPath!);
-      const sqlite = await makeSqlite(gtfs.localPath!, feed.id);
+      const feedConfig = loadFeedConfig(feed.id);
+      const staticExtension = await buildStaticExtension(feed.id, feedConfig);
+      const sqlite = await makeSqlite(gtfs.localPath!, feed.id, staticExtension);
 
       // The raw .gtfs.zip isn't republished — consumers fetch it from the
       // upstream URL recorded in source.upstream_url.

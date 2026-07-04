@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: read
+  packages: read  # @n3ary/* deps from GH Packages (e.g. cluj adapter)
 
 jobs:
   build:
@@ -48,7 +49,20 @@ jobs:
         # goes through PR review. We don't need pnpm 11's supply-chain
         # re-verification step (which can reject fresh publishes within
         # 24h of their release) blocking CI for lockfile-only diffs.
-        run: pnpm install --frozen-lockfile --trust-lockfile
+        #
+        # NODE_AUTH_TOKEN + HOME-scoped .npmrc lets pnpm fetch
+        # @n3ary/* deps from GH Packages (the cluj adapter's
+        # `clujStaticExtension` is now a published dep).
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HOME: ${{ runner.temp }}/gtfs-daily-clean-home
+        run: |
+          mkdir -p "$HOME"
+          {
+            echo "@n3ary:registry=https://npm.pkg.github.com"
+            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
+          } > "$HOME/.npmrc"
+          pnpm install --frozen-lockfile --trust-lockfile
 
       - name: Build packages
         run: pnpm build

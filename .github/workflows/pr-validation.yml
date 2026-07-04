@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write  # needed by the version-bump action to push the bot commit
+  packages: read  # needed to install @n3ary/* deps from GH Packages
 
 jobs:
   validate:
@@ -36,7 +37,21 @@ jobs:
         # goes through PR review. We don't need pnpm 11's supply-chain
         # re-verification step (which can reject fresh publishes within
         # 24h of their release) blocking CI for lockfile-only diffs.
-        run: pnpm install --frozen-lockfile --trust-lockfile
+        #
+        # NODE_AUTH_TOKEN gets baked into a HOME-scoped .npmrc so pnpm
+        # can fetch @n3ary/* deps published to GH Packages (e.g.
+        # @n3ary/gtfs-adapter-cluj-napoca). The repo's committed .npmrc
+        # only declares scope mapping; token wiring is here.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HOME: ${{ runner.temp }}/gtfs-pr-clean-home
+        run: |
+          mkdir -p "$HOME"
+          {
+            echo "@n3ary:registry=https://npm.pkg.github.com"
+            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
+          } > "$HOME/.npmrc"
+          pnpm install --frozen-lockfile --trust-lockfile
 
       - name: Build packages
         run: pnpm build
