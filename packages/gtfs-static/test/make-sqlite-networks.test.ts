@@ -13,10 +13,14 @@ import { tmpdir } from 'node:os';
 // section disappeared.
 //
 // This test builds a minimal GTFS zip (the 5 required spec tables +
-// networks.txt + route_networks.txt) and asserts that both tables
-// have rows + a network_color was computed and persisted. Also
-// verifies the public spec's PK constraint (route_id is the sole PK
-// on route_networks — a route belongs to at most one network).
+// networks.txt + route_networks.txt) and asserts both spec tables
+// have rows + the route↔network JOIN the app consumes. The
+// producer-computed `network_color` column (and its OKLCh-derived
+// values) used to be tested here too, but it moved to the cluj
+// adapter as part of n3ary/gtfs#67 — the generic pipeline no longer
+// owns per-feed color algebra. See
+// `n3ary/gtfs-adapters/adapters/cluj-napoca/src/static/` for the
+// equivalent coverage there.
 
 const WORK = join(tmpdir(), `gtfs-static-networks-${Date.now()}`);
 const ZIP_PATH = join(WORK, 'feed.gtfs.zip');
@@ -69,23 +73,17 @@ describe('make-sqlite + networks ingestion (n3ary/app#190)', () => {
 
     const db = new Database(dbPath, { readonly: true });
     try {
-      // Both public tables must have rows.
+      // Both public spec tables must have rows.
       const networksCount = (db.prepare('SELECT COUNT(*) AS c FROM networks').get() as { c: number }).c;
       expect(networksCount).toBe(2);
 
       const rnCount = (db.prepare('SELECT COUNT(*) AS c FROM route_networks').get() as { c: number }).c;
       expect(rnCount).toBe(2);
 
-      // Producer-computed network_color: written by lib/route-colors.ts
-      // via ALTER TABLE. Must NOT be null — the app reads it verbatim.
-      const colors = db.prepare('SELECT network_id, network_color FROM networks ORDER BY network_id').all() as Array<{ network_id: string; network_color: string | null }>;
-      expect(colors).toEqual([
-        { network_id: 'night', network_color: expect.stringMatching(/^[0-9A-F]{6}$/) },
-        { network_id: 'school', network_color: expect.stringMatching(/^[0-9A-F]{6}$/) },
-      ]);
-
       // The JOIN consumed by the app: route ↔ network. Each route
-      // joins to exactly one network per the public spec.
+      // joins to exactly one network per the public spec. Verifies the
+      // route_networks PK constraint (route_id alone) is honored: with
+      // a single network per route_id, the join always yields one row.
       const joined = db.prepare(`
         SELECT r.route_short_name, n.network_id
         FROM routes r
@@ -97,6 +95,12 @@ describe('make-sqlite + networks ingestion (n3ary/app#190)', () => {
         { route_short_name: '1', network_id: 'night' },
         { route_short_name: '2', network_id: 'school' },
       ]);
+
+      // networks.network_color is NOT added by the generic pipeline
+      // anymore — the cluj adapter's StaticExtension supplies it via
+      // a per-feed hook. Verify the column is absent here.
+      const cols = db.prepare("PRAGMA table_info('networks')").all() as Array<{ name: string }>;
+      expect(cols.some((c) => c.name === 'network_color')).toBe(false);
     } finally {
       db.close();
     }

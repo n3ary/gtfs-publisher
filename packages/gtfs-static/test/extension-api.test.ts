@@ -115,14 +115,16 @@ describe('makeSqlite StaticExtension API', () => {
     expect(hookCalls).toEqual(['demo-extension']);
   });
 
-  it('omitting extensions keeps the legacy producer-only path', async () => {
-    // Same harness as the legacy `make-sqlite-networks.test.ts`
-    // (the existing test in this package covers the full flow). Here
-    // we only verify that no-extension call doesn't throw and that
-    // the legacy network_color gets written.
+  it('omitting extensions leaves the sqlite spec-only (no per-feed extras)', async () => {
+    // The generic pipeline now owns zero per-feed knowledge. A call
+    // without an extension produces exactly the public GTFS Schedule
+    // schema — no `network_color` column, no `_neary_config` table.
+    // Network colors + cluj timing rows arrive only when an adapter
+    // supplies them via its `StaticExtension` object (see
+    // `n3ary/gtfs-adapters/adapters/cluj-napoca/src/static/extension.ts`).
     mkdirSync(WORK, { recursive: true });
-    const legacyZip = join(WORK, 'legacy.gtfs.zip');
-    const out = createWriteStream(legacyZip);
+    const noExtZip = join(WORK, 'no-ext.gtfs.zip');
+    const out = createWriteStream(noExtZip);
     const archive = new ZipArchive({ zlib: { level: 9 } });
     const done = new Promise<void>((resolve, reject) => {
       out.on('close', () => resolve());
@@ -140,21 +142,29 @@ describe('makeSqlite StaticExtension API', () => {
     await done;
 
     const { makeSqlite } = await import('../dist/make-sqlite.js');
-    const result = await makeSqlite(legacyZip, 'legacy-no-ext');
+    const result = await makeSqlite(noExtZip, 'no-ext');
     expect(result).not.toBeNull();
 
     const gz = readFileSync(result!.localPath);
     const raw = gunzipSync(gz);
-    const dbPath = join(WORK, 'legacy.sqlite3');
+    const dbPath = join(WORK, 'no-ext.sqlite3');
     writeFileSync(dbPath, raw);
     const db = new Database(dbPath, { readonly: true });
     try {
-      // Legacy column extension still lands automatically.
-      const color = db.prepare("SELECT network_color FROM networks WHERE network_id = 'N1'").get() as { network_color: string | null };
-      expect(color.network_color).toMatch(/^[0-9A-F]{6}$/);
-      // Legacy pipeline-internal table is created.
-      const count = (db.prepare('SELECT COUNT(*) AS c FROM _neary_config').get() as { c: number }).c;
-      expect(count).toBeGreaterThanOrEqual(0);
+      // No network_color column on networks when no extension is given.
+      const cols = db.prepare("PRAGMA table_info('networks')").all() as Array<{ name: string }>;
+      expect(cols.some((c) => c.name === 'network_color')).toBe(false);
+
+      // No _neary_config table when no extension is given.
+      const hasCfg = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_neary_config'")
+        .get();
+      expect(hasCfg).toBeUndefined();
+
+      // The spec tables ARE there (sanity check — the pipeline is still
+      // applying spec DDL).
+      const n = db.prepare('SELECT COUNT(*) AS c FROM networks').get() as { c: number };
+      expect(n.c).toBe(1);
     } finally {
       db.close();
       rmSync(WORK, { recursive: true, force: true });
