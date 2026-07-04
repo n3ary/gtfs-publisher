@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.12-m1",
+  "version": "0.2.13-m1",
   "private": true,
   "type": "module",
   "description": "Producer monorepo for the neary PWA — packages/static (offline pipeline), packages/rt (live RT adapter), packages/shared (@ciotlosm/neary-gtfs-core).",
@@ -14,6 +14,7 @@
     "test": "pnpm -r --parallel test",
     "test:static": "pnpm --filter @gtfs/static test",
     "build": "pnpm -r --filter './packages/*' build",
+    "check": "pnpm -r --filter './packages/*' check",
     "lint": "pnpm -r --parallel lint"
   },
   "devDependencies": {

@@ -3,6 +3,10 @@ packages:
 
 allowBuilds:
   better-sqlite3: true
+  esbuild: true
+  protobufjs: true
+  sharp: true
+  workerd: true
 
 # csv-parse@7.0.1 was published ~22.5h ago at the time of the last lockfile
 # bump (2026-07-03). pnpm 11 defaults to a 24h minimumReleaseAge cutoff.
