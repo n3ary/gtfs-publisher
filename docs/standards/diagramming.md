@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@dee18d2 on 2026-07-04 -->
+<!-- synced from n3ary/standards@ef77e9b on 2026-07-04 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Diagramming and admonitions
@@ -28,14 +28,14 @@ flowchart LR
 ### Where to put diagrams
 
 - **Inline** in the doc that needs it (most cases).
-- **Dedicated file** under [architecture/](../architecture/) only when the
+- **Dedicated file** under [../architecture/](../architecture/) only when the
   same diagram is referenced by 2+ docs.
 
 ### When ASCII boxes are still OK
 
 Short layered overviews (4–6 boxes, no interconnections) are clearer as ASCII
 in a code block than as a Mermaid render. See
-[architecture/system-overview.md](../architecture/system-overview.md)
+[../architecture/system-overview.md](../architecture/system-overview.md)
 for an example. Anything more complex → Mermaid.
 
 > [!CAUTION]
