@@ -10,9 +10,9 @@
     "pnpm": ">=11"
   },
   "scripts": {
-    "pipeline": "pnpm --filter @neary-gtfs/static pipeline",
+    "pipeline": "pnpm --filter @gtfs/static pipeline",
     "test": "pnpm -r --parallel test",
-    "test:static": "pnpm --filter @neary-gtfs/static test",
+    "test:static": "pnpm --filter @gtfs/static test",
     "build": "pnpm -r --filter './packages/*' build",
     "lint": "pnpm -r --parallel lint"
   },

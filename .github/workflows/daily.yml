@@ -76,6 +76,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # 0. Preflight: pipeline must have produced feeds.json.
+          #    Catches earlier silent failures (e.g. a misnamed pnpm filter
+          #    that exits 0 with "No projects matched") that pnpm itself
+          #    would not surface as a non-zero exit. Hard-fail here with a
+          #    clear message rather than letting `aws s3 cp` fail later
+          #    with an opaque "path does not exist".
+          OUTPUTS=packages/gtfs-static/outputs
+          if [ ! -s "$OUTPUTS/feeds.json" ]; then
+            echo "::error::feeds.json missing or empty at $OUTPUTS/feeds.json — 'Run pipeline' produced no output." >&2
+            ls -la "$OUTPUTS" 2>/dev/null || echo "(directory $OUTPUTS does not exist)" >&2
+            exit 1
+          fi
+
           # 1. Upload sqlite files BEFORE feeds.json.
           #    Order matters: if the job crashes between steps, clients
           #    keep seeing the previous feeds.json — which references
