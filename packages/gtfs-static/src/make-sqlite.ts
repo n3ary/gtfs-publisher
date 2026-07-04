@@ -207,7 +207,12 @@ export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<S
     let networkRows: Array<Record<string, unknown>> | null = null;
     let routeNetworkRows: Array<Record<string, unknown>> | null = null;
 
-    for (const [tableName, spec] of Object.entries(SCHEMA)) {
+    // Iterate both SCHEMA (9 standard GTFS tables) and EXTENSIONS
+    // (producer-only: networks, route_networks). The spec refactor
+    // split the source map; the ingestion loop has to cover both
+    // halves or networks.txt data never lands in the blob
+    // (regression: app favorites network filter chips disappeared).
+    for (const [tableName, spec] of Object.entries({ ...SCHEMA, ...EXTENSIONS })) {
       if (!(await entryExists(zip, spec.file))) continue;
 
       if (BUFFERED.has(tableName)) {
