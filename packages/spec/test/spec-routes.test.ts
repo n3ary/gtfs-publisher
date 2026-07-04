@@ -8,8 +8,8 @@ const CSV = [
 ].join('\n');
 
 describe('parseRoutes', () => {
-  it('parses all routes', () => {
-    const rows = parseRoutes(CSV);
+  it('parses all routes', async () => {
+    const rows = await parseRoutes(CSV);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ route_id: 'R1', route_type: '3' });
   });

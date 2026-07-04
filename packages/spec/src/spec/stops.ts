@@ -42,6 +42,6 @@ export const StopRowSchema = z.object({
 
 export type StopRow = z.infer<typeof StopRowSchema>;
 
-export const parseStops = (text: string): StopRow[] => parseRows(StopRowSchema, text);
+export const parseStops = (text: string): Promise<StopRow[]> => parseRows(StopRowSchema, text);
 export const parseStopsStream = (source: AsyncIterable<string>): AsyncIterable<StopRow> =>
   parseRowsStream(StopRowSchema, source);

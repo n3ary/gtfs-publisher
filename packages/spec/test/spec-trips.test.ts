@@ -9,8 +9,8 @@ const CSV = [
 ].join('\n');
 
 describe('parseTrips', () => {
-  it('parses all trips including empty optional fields', () => {
-    const rows = parseTrips(CSV);
+  it('parses all trips including empty optional fields', async () => {
+    const rows = await parseTrips(CSV);
     expect(rows).toHaveLength(3);
     // csv-parse returns '' for empty optional cells — that's what callers
     // should expect. `.undefined` only happens if the column is missing
@@ -18,8 +18,8 @@ describe('parseTrips', () => {
     expect(rows[2]?.direction_id).toBe('');
   });
 
-  it('rejects missing required service_id', () => {
+  it('rejects missing required service_id', async () => {
     const csv = 'trip_id,route_id,direction_id\nT1,R1,0';
-    expect(() => parseTrips(csv)).toThrow();
+    await expect(parseTrips(csv)).rejects.toThrow();
   });
 });

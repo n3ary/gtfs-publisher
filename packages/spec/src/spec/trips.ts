@@ -31,6 +31,6 @@ export const TripRowSchema = z.object({
 
 export type TripRow = z.infer<typeof TripRowSchema>;
 
-export const parseTrips = (text: string): TripRow[] => parseRows(TripRowSchema, text);
+export const parseTrips = (text: string): Promise<TripRow[]> => parseRows(TripRowSchema, text);
 export const parseTripsStream = (source: AsyncIterable<string>): AsyncIterable<TripRow> =>
   parseRowsStream(TripRowSchema, source);

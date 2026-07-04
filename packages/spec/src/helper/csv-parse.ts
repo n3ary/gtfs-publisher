@@ -10,10 +10,18 @@
  *
  * Not honoured (don't appear in real GTFS):
  *   - Multi-line quoted fields
+ *
+ * csv-parse is loaded dynamically on the first parseRows / parseRowsStream
+ * call rather than as a static import. The reason: this package is also
+ * consumed from the browser (the GTFS worker inside n3ary/app), and
+ * csv-parse is a Node-flavored library — it pulls `stream.Transform` and
+ * `Buffer` at module-load time, both undefined in browser/Worker
+ * contexts. A static import would force every consumer of any spec
+ * reader to also carry csv-parse (and its Node externals) through their
+ * bundler, even if the consumer never actually parses CSV in that
+ * context. Dynamic import keeps csv-parse out of the import graph until
+ * a real parse call happens.
  */
-
-import { parse as csvParseSync } from 'csv-parse/sync';
-import { parse as csvParseAsync } from 'csv-parse';
 import type { ZodType } from 'zod';
 
 const PARSE_OPTS = {
@@ -25,17 +33,43 @@ const PARSE_OPTS = {
   bom: true,
 } as const;
 
+// Cached on first use. The dynamic-import promise resolves once; subsequent
+// callers reuse the resolved module reference.
+let csvParseSyncPromise:
+  | Promise<(text: string, opts: typeof PARSE_OPTS) => Record<string, string>[]>
+  | null = null;
+let csvParseAsyncPromise:
+  | Promise<(opts: typeof PARSE_OPTS) => NodeJS.ReadWriteStream>
+  | null = null;
+
+function loadCsvParseSync() {
+  if (!csvParseSyncPromise) {
+    csvParseSyncPromise = import('csv-parse/sync').then((m) => m.parse);
+  }
+  return csvParseSyncPromise;
+}
+
+function loadCsvParseAsync() {
+  if (!csvParseAsyncPromise) {
+    csvParseAsyncPromise = import('csv-parse').then((m) => m.parse);
+  }
+  return csvParseAsyncPromise;
+}
+
 /**
  * Parse a complete CSV text in one pass. Returns validated rows.
  *
- * Synchronous — fine for small files (agency.txt, calendar.txt, routes.txt,
- * stops.txt, trips.txt for most feeds). For stop_times.txt and shapes.txt,
- * which routinely exceed 500 MB uncompressed, prefer {@link parseRowsStream}.
+ * Async because csv-parse is loaded via dynamic import (see the file
+ * header for why). Fine for small files (agency.txt, calendar.txt,
+ * routes.txt, stops.txt, trips.txt for most feeds). For stop_times.txt
+ * and shapes.txt, which routinely exceed 500 MB uncompressed, prefer
+ * {@link parseRowsStream}.
  */
-export function parseRows<T>(
+export async function parseRows<T>(
   schema: ZodType<T>,
   text: string,
-): T[] {
+): Promise<T[]> {
+  const csvParseSync = await loadCsvParseSync();
   const records = csvParseSync(text, PARSE_OPTS) as Record<string, string>[];
   const out: T[] = [];
   for (const r of records) {
@@ -59,8 +93,13 @@ export async function* parseRowsStream<T>(
   source: AsyncIterable<string>,
 ): AsyncGenerator<T> {
   // csv-parse's async API accepts a Node Readable. We wrap the incoming
-  // async iterable into one using `Readable.from` (Node 20+).
+  // async iterable into one using `Readable.from` (Node 20+). node:stream
+  // is only dynamically imported inside this generator, so the spec
+  // bundle stays Node-free at module-load time and can be loaded by
+  // browser-side consumers (e.g. the GTFS worker) without dragging in
+  // stream's externalized-stub chain.
   const { Readable } = await import('node:stream');
+  const csvParseAsync = await loadCsvParseAsync();
   const readable = Readable.from(source as AsyncIterable<string>);
   const parser = readable.pipe(
     csvParseAsync(PARSE_OPTS) as unknown as NodeJS.ReadWriteStream,

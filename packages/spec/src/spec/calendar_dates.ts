@@ -19,7 +19,7 @@ export const CalendarDateRowSchema = z.object({
 
 export type CalendarDateRow = z.infer<typeof CalendarDateRowSchema>;
 
-export const parseCalendarDates = (text: string): CalendarDateRow[] =>
+export const parseCalendarDates = (text: string): Promise<CalendarDateRow[]> =>
   parseRows(CalendarDateRowSchema, text);
 export const parseCalendarDatesStream = (source: AsyncIterable<string>): AsyncIterable<CalendarDateRow> =>
   parseRowsStream(CalendarDateRowSchema, source);

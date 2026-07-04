@@ -20,6 +20,6 @@ export const NetworkRowSchema = z.object({
 
 export type NetworkRow = z.infer<typeof NetworkRowSchema>;
 
-export const parseNetworks = (text: string): NetworkRow[] => parseRows(NetworkRowSchema, text);
+export const parseNetworks = (text: string): Promise<NetworkRow[]> => parseRows(NetworkRowSchema, text);
 export const parseNetworksStream = (source: AsyncIterable<string>): AsyncIterable<NetworkRow> =>
   parseRowsStream(NetworkRowSchema, source);

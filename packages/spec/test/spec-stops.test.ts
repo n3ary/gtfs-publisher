@@ -9,15 +9,15 @@ const CSV = [
 ].join('\n');
 
 describe('parseStops', () => {
-  it('parses all stops', () => {
-    const rows = parseStops(CSV);
+  it('parses all stops', async () => {
+    const rows = await parseStops(CSV);
     expect(rows).toHaveLength(3);
     expect(rows[0]).toMatchObject({ stop_id: 'A', stop_lat: '46.77' });
   });
 
-  it('rejects a row with empty stop_id', () => {
+  it('rejects a row with empty stop_id', async () => {
     const csv = 'stop_id,stop_name,stop_lat,stop_lon\n,Central,46.77,23.59';
-    expect(() => parseStops(csv)).toThrow();
+    await expect(parseStops(csv)).rejects.toThrow();
   });
 });
 

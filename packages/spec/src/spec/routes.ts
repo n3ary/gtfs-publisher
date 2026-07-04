@@ -37,6 +37,6 @@ export const RouteRowSchema = z.object({
 
 export type RouteRow = z.infer<typeof RouteRowSchema>;
 
-export const parseRoutes = (text: string): RouteRow[] => parseRows(RouteRowSchema, text);
+export const parseRoutes = (text: string): Promise<RouteRow[]> => parseRows(RouteRowSchema, text);
 export const parseRoutesStream = (source: AsyncIterable<string>): AsyncIterable<RouteRow> =>
   parseRowsStream(RouteRowSchema, source);
