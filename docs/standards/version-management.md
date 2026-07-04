@@ -39,7 +39,7 @@ Two PRs open at the same time:
 
 ## Implementation reference
 
-The bump is implemented as a shared composite action: [ciotlosm/neary-shared/.github/actions/version-bump](https://github.com/ciotlosm/neary-shared/tree/main/.github/actions/version-bump). All three repos (neary, neary-gtfs, cluj-napoca-gtfs-adapter) use the same action, pinned to `@v1`.
+The bump is implemented as a shared composite action: [n3ary/standards/.github/actions/version-bump](https://github.com/n3ary/standards/tree/main/.github/actions/version-bump). All three repos (neary, neary-gtfs, cluj-napoca-gtfs-adapter) use the same action, pinned to `@v1`.
 
 Why shared (and not copy-pasted into each repo's `pr-validation.yml`):
 - The bug we hit (`0.2.0-m1` parsing as `0.2.NaN`) was caused by copy-paste drift. Extracting to a shared action fixes the bug once and makes it testable in isolation.
@@ -49,7 +49,7 @@ Usage:
 
 ```yaml
 - name: Auto-bump version
-  uses: ciotlosm/neary-shared/.github/actions/version-bump@v1
+  uses: n3ary/standards/.github/actions/version-bump@v1
   with:
     bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
 ```

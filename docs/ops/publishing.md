@@ -75,4 +75,4 @@ You should see `package/dist/index.js`, `package/dist/schema/`, `package/dist/sp
 
 ## Why GitHub Packages (not npmjs)?
 
-The four repos (neary, neary-gtfs, neary-shared, cluj-napoca-gtfs-adapter) all live in the new `n3ary` GitHub org as private repos. GitHub Packages is the natural registry for that audience. Publishing to npmjs would require a separate npmjs account + a two-factor auth dance + an unverified publisher.
+The four repos (neary, neary-gtfs, n3ary/standards, cluj-napoca-gtfs-adapter) all live in the new `n3ary` GitHub org as private repos. GitHub Packages is the natural registry for that audience. Publishing to npmjs would require a separate npmjs account + a two-factor auth dance + an unverified publisher.

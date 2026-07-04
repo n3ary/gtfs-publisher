@@ -1,14 +1,14 @@
 # Standards
 
 All standards in this directory are vendored from
-[`ciotlosm/neary-shared/standards/`](https://github.com/ciotlosm/neary-shared/tree/main/standards).
-The vendored copies carry a `<!-- synced from ciotlosm/neary-shared@<sha> on <date} -->` header.
+[`n3ary/standards/standards/`](https://github.com/n3ary/standards/tree/main/standards).
+The vendored copies carry a `<!-- synced from n3ary/standards@<sha> on <date} -->` header.
 
-**Don't edit vendored standards locally.** Edits will be overwritten by the next sync from `neary-shared`. To change a shared standard, edit it in `neary-shared/standards/` instead.
+**Don't edit vendored standards locally.** Edits will be overwritten by the next sync from `n3ary/standards`. To change a shared standard, edit it in `n3ary/standards/standards/` instead.
 
-The drift check workflow (`.github/workflows/check-standards-drift.yml`) fails a PR if a vendored copy is out of date with `neary-shared@main`.
+The drift check workflow (`.github/workflows/check-standards-drift.yml`) fails a PR if a vendored copy is out of date with `n3ary/standards@main`.
 
-## Vendored (from `neary-shared`)
+## Vendored (from `n3ary/standards`)
 
 - `agent-worktrees.md`
 - `core-principles.md`
@@ -26,12 +26,12 @@ None today. Future feed-pipeline-specific standards (e.g. CSV-encoding rules, ET
 
 ## How to sync locally
 
-Wait for the auto-sync PR from `neary-shared@main`, or:
+Wait for the auto-sync PR from `n3ary/standards@main`, or:
 
 ```bash
-cd <path-to-neary-shared>
+cd <path-to-n3ary/standards>
 node scripts/vendor-standards.mjs --local /tmp/vendor
 cp /tmp/vendor/* docs/standards/
 git add docs/standards/
-git commit -m "chore(standards): vendor from ciotlosm/neary-shared"
+git commit -m "chore(standards): vendor from n3ary/standards"
 ```

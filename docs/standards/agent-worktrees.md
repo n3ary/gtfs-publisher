@@ -1,4 +1,4 @@
-<!-- synced from ciotlosm/neary-shared@7e7c68b on 2026-07-03 -->
+<!-- synced from n3ary/standards@dee18d2 on 2026-07-04 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Agent worktrees
