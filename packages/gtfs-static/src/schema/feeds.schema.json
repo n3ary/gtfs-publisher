@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ciotlosm/neary-gtfs/packages/gtfs-static/src/schema/feeds.schema.json",
-  "title": "neary-gtfs app-facing feed registry",
+  "$id": "https://github.com/ciotlosm/gtfs/packages/gtfs-static/src/schema/feeds.schema.json",
+  "title": "gtfs app-facing feed registry",
   "description": "The feeds.json catalog published to the Cloudflare R2 bucket (gtfs.n3ary.com) and consumed by the neary PWA on launch.",
   "type": "object",
   "required": ["version", "generated_at", "feeds"],

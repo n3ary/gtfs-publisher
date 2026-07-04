@@ -39,7 +39,7 @@ flowchart LR
 3. **GTFS zip download with ETag skip**: `fetch-gtfs.js` HEADs the upstream URL; if the ETag matches the cached one, the zip is skipped. Pipeline stays under 1 minute when nothing changed.
 4. **`validate` + smoke (remote only)**: `validate.js` confirms a manifest of basic invariants; for remote sources, `smoke-remote.js` parses a few CSVs through the production parser to catch regressions in upstream format.
 5. **`derive-bbox` + `make-sqlite`**: computes the feed's bounding box (consumed by the app to suggest feeds that cover the user's location); converts each CSV to a SQLite table.
-6. **`feeds.json` + `*.sqlite3.gz` → R2**: published to the `neary-gtfs` bucket via the S3-compatible R2 API. See [../ops/secrets-and-deploy.md](../ops/secrets-and-deploy.md) for credentials.
+6. **`feeds.json` + `*.sqlite3.gz` → R2**: published to the `neary-gtfs` bucket via the S3-compatible R2 API. See [ops/secrets-and-deploy.md](../ops/secrets-and-deploy.md) for credentials.
 7. **MobilityData catalog → realtime URLs**: when a Transitous source has an RT sibling with an `mdb-id`, `mdb-rt.js` resolves it to a direct RT URL via the MobilityData catalog on GitHub (`api.github.com` git tree + `raw.githubusercontent.com/...mobility-database-catalogs/`). The resolved URLs land in `feeds.json` `realtime.*` so the consumer knows where to fetch `vehicle_positions`.
 8. **`neary` PWA**: the consumer side. At launch it fetches `feeds.json`, picks a feed (or auto-picks by GPS), downloads `*.sqlite3.gz`, stores in OPFS, then starts polling the RT URL the MDB step wrote into `feeds.json`.
 
@@ -70,3 +70,5 @@ The raw `.gtfs.zip` is not republished — its upstream URL is in `source.upstre
 - Pipeline stage implementation — [`packages/gtfs-static/src/README.md`](../../packages/gtfs-static/src/README.md)
 - Repository layout and conventions — [`../README.md`](../README.md) (the slimmed landing page)
 - Secrets + R2 setup — [`../ops/secrets-and-deploy.md`](../ops/secrets-and-deploy.md)
+
+<!-- The R2 bucket is named `neary-gtfs` for historical reasons. We renamed the GitHub repo to `n3ary/gtfs` but kept the bucket name (and CDN URL `gtfs.n3ary.com`) to avoid breaking external links. -->

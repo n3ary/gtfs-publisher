@@ -5,11 +5,11 @@
  *
  * Why this lives in the package: the consumer (neary) needs this math
  * to render the live map and predict arrivals. Putting it in the
- * shared library means the producer side (neary-gtfs) and consumer
+ * shared library means the producer side (gtfs) and consumer
  * side (neary) use the exact same implementation, no drift.
  *
  * Per the issue's cross-repo-math-sharing decision: the producer
- * (neary-gtfs) does not actually need this code right now — it builds
+ * (gtfs) does not actually need this code right now — it builds
  * the sqlite but doesn't project shapes. But the issue notes the
  * planned RT adapter (step 7+) WILL need it, and the consumer adopts
  * it as step 6. Putting it in the package makes both future

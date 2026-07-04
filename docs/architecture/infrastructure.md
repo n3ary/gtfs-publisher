@@ -3,8 +3,8 @@
 Every cloud / external piece this repo's pipeline touches, in one diagram + one table. Cross-references the relevant docs for detail; this doc is the **index** for "what runs where and what breaks if it dies". Only current infrastructure — future work lives in issues.
 
 Cross-refs:
-- Pipeline development + CI workflow — [../../DEVELOPMENT.md](../../DEVELOPMENT.md)
-- Pipeline anatomy — [../../packages/gtfs-static/src/README.md](../../packages/gtfs-static/src/README.md)
+- Pipeline development + CI workflow — [DEVELOPMENT.md](../../DEVELOPMENT.md)
+- Pipeline anatomy — [README.md](../../packages/gtfs-static/src/README.md)
 - Sister repo that consumes the outputs — [neary](https://github.com/ciotlosm/neary) docs/architecture/infrastructure.md
 
 ## Diagram
@@ -81,3 +81,5 @@ Driving the R2 upload (defined in [DEVELOPMENT.md](../../DEVELOPMENT.md) lines 1
 | `GITHUB_TOKEN` | secret | Set in CI for higher rate limit on `api.github.com` (MDB catalog lookup). Optional — 60 req/hour is enough for 1-call-per-run. |
 
 Uploads set `Cache-Control: public, max-age=300` on `feeds.json` and each `<id>.sqlite3.gz` — propagation stays bounded to ≤ 5 min per publish, matches the previous GitHub-raw behavior the sister repo's consumer relied on.
+
+<!-- The R2 bucket is named `neary-gtfs` for historical reasons. We renamed the GitHub repo to `n3ary/gtfs` but kept the bucket name (and CDN URL `gtfs.n3ary.com`) to avoid breaking external links. -->

@@ -11,11 +11,11 @@
  * / route_networks.txt (currently: none, but the table layout is
  * reserved for future feeds).
  *
- * Lives in gtfs-static (not @neary-gtfs/spec) because the published
+ * Lives in gtfs-static (not @gtfs/spec) because the published
  * GTFS spec library is strictly spec — no per-feed knowledge.
  */
 
-import type { ColumnSpec, SchemaSpec } from '@n3ary/neary-gtfs-spec/sql';
+import type { ColumnSpec, SchemaSpec } from '@n3ary/gtfs-spec/sql';
 
 type NetworksColumns = {
   network_id: ColumnSpec;

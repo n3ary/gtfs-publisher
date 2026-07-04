@@ -1,20 +1,20 @@
-# Publishing `@n3ary/neary-gtfs-spec`
+# Publishing `@n3ary/gtfs-spec`
 
 The library is published to **GitHub Packages** (org `n3ary`). The full package lifecycle is automated via `.github/workflows/publish-spec.yml`.
 
 ## Package URL
 
 ```
-https://github.com/orgs/n3ary/packages/npm/neary-gtfs-spec
+https://github.com/orgs/n3ary/packages/npm/gtfs-spec
 ```
 
-Public on GitHub Packages — anyone can `npm install @n3ary/neary-gtfs-spec` after authenticating with a GitHub token (free, no payment).
+Public on GitHub Packages — anyone can `npm install @n3ary/gtfs-spec` after authenticating with a GitHub token (free, no payment).
 
 ## Publishing a release
 
 ### Option A: workflow_dispatch (recommended for the first cut)
 
-1. Go to https://github.com/n3ary/neary-gtfs/actions/workflows/publish-spec.yml
+1. Go to https://github.com/n3ary/gtfs/actions/workflows/publish-spec.yml
 2. Click "Run workflow"
 3. Enter the version, e.g. `0.2.0` or `0.2.0-rc.1` (prerelease tags allowed)
 4. The workflow:
@@ -56,7 +56,7 @@ For local development, the consumer needs a personal access token with `read:pac
 //npm.pkg.github.com/:_authToken=ghp_xxxxxxxxxxxxxxxx
 ```
 
-Then `npm install @n3ary/neary-gtfs-spec` works.
+Then `npm install @n3ary/gtfs-spec` works.
 
 ## First-publish visibility
 
@@ -67,12 +67,12 @@ Then `npm install @n3ary/neary-gtfs-spec` works.
 The published tarball contains only `packages/spec/dist/` (TypeScript output). Source `.ts` files and the rest of the monorepo are excluded. To verify, after a publish:
 
 ```bash
-npm pack @n3ary/neary-gtfs-spec
-tar tzf neary-gtfs-spec-0.1.0.tgz | head -20
+npm pack @n3ary/gtfs-spec
+tar tzf gtfs-spec-0.1.0.tgz | head -20
 ```
 
 You should see `package/dist/index.js`, `package/dist/schema/`, `package/dist/spec/`, `package/dist/sql/`, and `package/dist/helper/` — no `.ts` sources.
 
 ## Why GitHub Packages (not npmjs)?
 
-The four repos (neary, neary-gtfs, n3ary/standards, cluj-napoca-gtfs-adapter) all live in the new `n3ary` GitHub org as private repos. GitHub Packages is the natural registry for that audience. Publishing to npmjs would require a separate npmjs account + a two-factor auth dance + an unverified publisher.
+The four repos in the n3ary org (app, gtfs, standards, cluj-napoca-gtfs-adapter) all live in the new `n3ary` GitHub org as private repos. GitHub Packages is the natural registry for that audience. Publishing to npmjs would require a separate npmjs account + a two-factor auth dance + an unverified publisher.

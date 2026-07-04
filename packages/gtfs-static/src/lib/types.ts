@@ -1,15 +1,15 @@
 /**
  * Pipeline-orchestration types. NOT published as part of the
- * `@ciotlosm/neary-gtfs-core` library — these describe how the
+ * `@n3ary/gtfs-spec` library — these describe how the
  * static pipeline sources, derives metadata for, and serializes a
  * feed entry, which is specific to this repo's build logic.
  *
  * Pure GTFS-spec types (Agency, Bbox/Center/Validity, Realtime,
- * License) moved to `@n3ary/neary-gtfs-spec/schema` in issue #34 step 3.
+ * License) moved to `@n3ary/gtfs-spec/schema` in issue #34 step 3.
  * Re-exported here so existing import paths keep working.
  */
 
-import type { Agency, Bbox, Center, Realtime, Validity, License } from '@n3ary/neary-gtfs-spec/schema';
+import type { Agency, Bbox, Center, Realtime, Validity, License } from '@n3ary/gtfs-spec/schema';
 
 export type { Agency, Bbox, Center, Realtime, Validity, License };
 

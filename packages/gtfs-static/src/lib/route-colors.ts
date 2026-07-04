@@ -4,7 +4,7 @@
  * Many feeds publish route_color values that carry little per-route
  * signal — routes ship as #000 (a "no preference" sentinel), entire
  * modes share the same color, or values aren't valid hex. This module
- * normalizes those cases so every feed neary-gtfs ingests ends up
+ * normalizes those cases so every feed gtfs ingests ends up
  * with distinct, readable route colors regardless of producer hygiene:
  *
  *   1. Black/missing/invalid `route_color` → substituted with the

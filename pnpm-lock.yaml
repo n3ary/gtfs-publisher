@@ -20,7 +20,7 @@ importers:
 
   packages/gtfs-static:
     dependencies:
-      '@n3ary/neary-gtfs-spec':
+      '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../spec
       ajv:

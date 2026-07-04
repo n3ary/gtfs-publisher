@@ -1,6 +1,6 @@
 {
-  "name": "@n3ary/neary-gtfs-spec",
-  "version": "0.2.0",
+  "name": "@n3ary/gtfs-spec",
+  "version": "0.3.0",
   "private": false,
   "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
@@ -43,13 +43,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/n3ary/neary-gtfs.git",
+    "url": "git+https://github.com/n3ary/gtfs.git",
     "directory": "packages/spec"
   },
   "bugs": {
-    "url": "https://github.com/n3ary/neary-gtfs/issues"
+    "url": "https://github.com/n3ary/gtfs/issues"
   },
-  "homepage": "https://github.com/n3ary/neary-gtfs#readme",
+  "homepage": "https://github.com/n3ary/gtfs#readme",
   "dependencies": {
     "csv-parse": "^7.0.1",
     "zod": "^4.4.0"

@@ -6,7 +6,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-export const UA = 'neary-gtfs/2.0 (https://github.com/ciotlosm/neary-gtfs)';
+export const UA = 'gtfs/2.0 (https://github.com/n3ary/gtfs)';
 
 export async function fetchJson(url: string, extraHeaders: Record<string, string> = {}): Promise<unknown> {
   const res = await fetch(url, { headers: { 'User-Agent': UA, ...extraHeaders } });

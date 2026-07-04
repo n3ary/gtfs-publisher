@@ -1,5 +1,5 @@
 {
-  "name": "@neary-gtfs/rt",
+  "name": "@gtfs/rt",
   "version": "0.0.0",
   "private": true,
   "description": "Live GTFS-RT adapter — polls upstream feeds, applies per-feed quirks, publishes a clean FeedMessage. Placeholder until issue #34 step 7 populates it.",

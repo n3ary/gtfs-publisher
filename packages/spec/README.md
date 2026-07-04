@@ -1,4 +1,4 @@
-# `@n3ary/neary-gtfs-spec`
+# `@n3ary/gtfs-spec`
 
 The canonical GTFS spec library for the [neary](https://github.com/n3ary/neary) family. Strictly GTFS Schedule spec — types, CSV readers, and SQLite DDL. Zero per-feed knowledge.
 
@@ -7,15 +7,15 @@ The canonical GTFS spec library for the [neary](https://github.com/n3ary/neary) 
 Three subpaths:
 
 ```ts
-import { AgencySchema } from '@n3ary/neary-gtfs-spec/schema';
-import { parseAgency } from '@n3ary/neary-gtfs-spec/spec';
-import { SCHEMA, SCHEMA_SQL, REQUIRED_TABLES } from '@n3ary/neary-gtfs-spec/sql';
+import { AgencySchema } from '@n3ary/gtfs-spec/schema';
+import { parseAgency } from '@n3ary/gtfs-spec/spec';
+import { SCHEMA, SCHEMA_SQL, REQUIRED_TABLES } from '@n3ary/gtfs-spec/sql';
 ```
 
 Or import everything from the barrel:
 
 ```ts
-import * as Spec from '@n3ary/neary-gtfs-spec';
+import * as Spec from '@n3ary/gtfs-spec';
 ```
 
 ### `/spec` — per-spec-file readers
@@ -53,7 +53,7 @@ Browser-compatible — does not import any native driver.
 # In your .npmrc:
 #   @n3ary:registry=https://npm.pkg.github.com
 
-npm install @n3ary/neary-gtfs-spec
+npm install @n3ary/gtfs-spec
 ```
 
 ## Build / test
@@ -66,12 +66,12 @@ pnpm test
 
 ## Why this library exists
 
-Per the [gtfs-rt-contract.md](https://github.com/n3ary/neary/blob/main/docs/specs/gtfs-rt-contract.md), per-feed quirks live in the producer only. This library is the shared canonical contract across the four repos in the `n3ary` org (neary, neary-gtfs, neary-shared, cluj-napoca-gtfs-adapter).
+Per the [gtfs-rt-contract.md](https://github.com/n3ary/neary/blob/main/docs/specs/gtfs-rt-contract.md), per-feed quirks live in the producer only. This library is the shared canonical contract across the n3ary org (app, gtfs, standards, cluj-napoca-gtfs-adapter).
 
 ## Source
 
-[https://github.com/n3ary/neary-gtfs/tree/main/packages/spec](https://github.com/n3ary/neary-gtfs/tree/main/packages/spec)
+[https://github.com/n3ary/gtfs/tree/main/packages/spec](https://github.com/n3ary/gtfs/tree/main/packages/spec)
 
 ## License
 
-Per-feed licenses apply to GTFS data ingested by the producer. The library code itself is licensed under the same terms as the rest of the neary-gtfs repo.
+Per-feed licenses apply to GTFS data ingested by the producer. The library code itself is licensed under the same terms as the rest of the n3ary/gtfs repo.

@@ -33,3 +33,5 @@ PR-required, 0 approvals (solo-dev friendly), linear history (squash/rebase only
 ## Local pipeline
 
 See [`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) for the `pnpm pipeline` and `pnpm test` setup. For a smoke build without R2 upload: `SKIP_PUBLISH=1 pnpm pipeline`.
+
+<!-- The R2 bucket is named `neary-gtfs` for historical reasons. We renamed the GitHub repo to `n3ary/gtfs` but kept the bucket name (and CDN URL `gtfs.n3ary.com`) to avoid breaking external links. -->
