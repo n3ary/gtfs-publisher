@@ -29,6 +29,6 @@ export const FeedInfoRowSchema = z.object({
 
 export type FeedInfoRow = z.infer<typeof FeedInfoRowSchema>;
 
-export const parseFeedInfo = (text: string): FeedInfoRow[] => parseRows(FeedInfoRowSchema, text);
+export const parseFeedInfo = (text: string): Promise<FeedInfoRow[]> => parseRows(FeedInfoRowSchema, text);
 export const parseFeedInfoStream = (source: AsyncIterable<string>): AsyncIterable<FeedInfoRow> =>
   parseRowsStream(FeedInfoRowSchema, source);

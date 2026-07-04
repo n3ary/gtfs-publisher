@@ -27,6 +27,6 @@ export const AgencyRowSchema = z.object({
 
 export type AgencyRow = z.infer<typeof AgencyRowSchema>;
 
-export const parseAgency = (text: string): AgencyRow[] => parseRows(AgencyRowSchema, text);
+export const parseAgency = (text: string): Promise<AgencyRow[]> => parseRows(AgencyRowSchema, text);
 export const parseAgencyStream = (source: AsyncIterable<string>): AsyncIterable<AgencyRow> =>
   parseRowsStream(AgencyRowSchema, source);

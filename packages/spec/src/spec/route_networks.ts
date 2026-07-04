@@ -21,6 +21,6 @@ export const RouteNetworkRowSchema = z.object({
 
 export type RouteNetworkRow = z.infer<typeof RouteNetworkRowSchema>;
 
-export const parseRouteNetworks = (text: string): RouteNetworkRow[] => parseRows(RouteNetworkRowSchema, text);
+export const parseRouteNetworks = (text: string): Promise<RouteNetworkRow[]> => parseRows(RouteNetworkRowSchema, text);
 export const parseRouteNetworksStream = (source: AsyncIterable<string>): AsyncIterable<RouteNetworkRow> =>
   parseRowsStream(RouteNetworkRowSchema, source);
