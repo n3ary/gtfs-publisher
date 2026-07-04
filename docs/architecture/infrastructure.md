@@ -5,7 +5,7 @@ Every cloud / external piece this repo's pipeline touches, in one diagram + one 
 Cross-refs:
 - Pipeline development + CI workflow — [DEVELOPMENT.md](../../DEVELOPMENT.md)
 - Pipeline anatomy — [README.md](../../packages/gtfs-static/src/README.md)
-- Sister repo that consumes the outputs — [neary](https://github.com/ciotlosm/neary) docs/architecture/infrastructure.md
+- Sister repo that consumes the outputs — [n3ary/app](https://github.com/n3ary/app) (formerly `ciotlosm/neary`, renamed in #53)
 
 ## Diagram
 
@@ -64,8 +64,8 @@ flowchart TB
 | **Transitous country manifests** (`raw.githubusercontent.com/public-transport/transitous/main/feeds/<iso>.json`) | Per-country source list with `name` + `spec` + `mdb-id` etc. | Transitous (via GitHub raw) | Free | Most feeds missing |
 | **Transitous GTFS API** (`api.transitous.org/gtfs/<iso>_<name>.gtfs.zip`) | The actual `.gtfs.zip` download for plain-mirror feeds | Transitous | Free | Most feeds missing |
 | **MobilityData catalog** (via `api.github.com` git tree + `raw.githubusercontent.com/...mobility-database-catalogs/main/`) | Resolves Transitous `mdb-id`s into direct RT URLs (`vehicle_positions`, `trip_updates`, `service_alerts`); the resolved URLs get stamped into `feeds.json` | MobilityData (via GitHub) | Free; honors `GITHUB_TOKEN` for higher rate limit | RT URLs missing or wrong in the published `feeds.json` |
-| **Sister adapter zips** (e.g. [cluj-napoca-gtfs-adapter](https://github.com/ciotlosm/cluj-napoca-gtfs-adapter)) | Reconciled GTFS zip for specific feeds; consumed via `feeds/<id>/config.json` `source.type=remote` pointing at `source.url` | Each adapter's repo | (their infra) | Feeds sourced from that adapter stale |
-| **neary** (sister repo) | Consumer of the published artifacts | [neary repo](https://github.com/ciotlosm/neary) | (its own infra) | Data freshness signal missing |
+| **Sister adapter zips** (e.g. [cluj-napoca-gtfs-adapter](https://github.com/n3ary/cluj-napoca-gtfs-adapter)) | Reconciled GTFS zip for specific feeds; consumed via `feeds/<id>/config.json` `source.type=remote` pointing at `source.url` | Each adapter's repo | (their infra) | Feeds sourced from that adapter stale |
+| **n3ary/app** (sister repo, formerly `ciotlosm/neary`) | Consumer of the published artifacts | [n3ary/app repo](https://github.com/n3ary/app) | (its own infra) | Data freshness signal missing |
 
 ## Secrets + variables (GitHub repo settings)
 

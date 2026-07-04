@@ -1,6 +1,6 @@
 # neary-gtfs
 
-The app-side companion to a GTFS feed: turns one or more upstream `.gtfs.zip` URLs into the two things the [neary](https://github.com/ciotlosm/neary) PWA actually needs to render a city:
+The app-side companion to a GTFS feed: turns one or more upstream `.gtfs.zip` URLs into the two things the [n3ary/app](https://github.com/n3ary/app) PWA actually needs to render a city:
 
 1. A `.sqlite3.gz` blob per feed (the app's in-OPFS data store).
 2. A single `feeds.json` registry with everything else the app reads at launch — bbox, center, timezone, agencies, license, realtime URLs, and the upstream ETag we use for change-detection.
@@ -44,6 +44,10 @@ npm test           # vitest --run --passWithNoTests
 ## Contributing
 
 `main` is protected — every change goes through a PR. See [docs/standards/version-management.md](docs/standards/version-management.md) for the bump-on-PR rule. PRs trigger [`.github/workflows/pr-validation.yml`](.github/workflows/pr-validation.yml), which bumps `package.json#version` on the PR branch and runs test + lint + pipeline smoke.
+
+## Brand
+
+The visual identity (logo, favicon, social card, wordmarks) lives in the canonical [n3ary/branding](https://github.com/n3ary/branding) repo and is served at <https://branding.n3ary.com>. This repo doesn't ship any brand assets — if you need the GitHub org avatar, the repo social preview, or a logo, pull from there (see [the SETUP.md there](https://github.com/n3ary/branding/blob/main/SETUP.md) for the URL map).
 
 ## License
 
