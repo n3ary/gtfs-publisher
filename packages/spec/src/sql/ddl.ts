@@ -20,8 +20,9 @@
  * why the same table shapes are described structurally, not just as
  * a SQL string.
  *
- * Per-feed extensions (networks.txt, route_networks.txt) are NOT
- * included here. They're an internal producer concern and live in
+ * Per-feed extensions (the producer-computed `network_color` column
+ * and the `_neary_config` metadata table) are NOT included here.
+ * They're pipeline-specific and live in
  * packages/gtfs-static/src/extensions.ts.
  *
  * No SQLite-level foreign keys are declared. Consumers can opt in via
@@ -274,6 +275,38 @@ export const SCHEMA: Record<string, SchemaSpec> = {
       // Optional. Technical contact URL.
       ['feed_contact_url', 'TEXT'],
     ],
+  },
+  // networks.txt — Conditionally Forbidden. When present, defines
+  // network identifiers that apply for fare leg rules. A route can
+  // belong to at most one network (PK is `route_id` on
+  // route_networks.txt). See
+  // https://gtfs.org/schedule/reference/#networkstxt
+  networks: {
+    file: 'networks.txt',
+    columns: [
+      // Required. Unique ID. Must be unique in networks.txt.
+      ['network_id', 'TEXT PRIMARY KEY'],
+      // Optional. The name of the network as used by the local agency
+      // and its riders.
+      ['network_name', 'TEXT'],
+    ],
+  },
+  // route_networks.txt — Conditionally Forbidden. Assigns routes from
+  // routes.txt to networks. The public spec declares `route_id` as the
+  // primary key alone (a route can be in at most one network), so
+  // INSERT OR IGNORE on this table naturally drops feed-quirk 1:many
+  // rows beyond the first. See
+  // https://gtfs.org/schedule/reference/#route_networkstxt
+  route_networks: {
+    file: 'route_networks.txt',
+    columns: [
+      // Foreign ID → networks.network_id. Required.
+      ['network_id', 'TEXT NOT NULL'],
+      // Foreign ID → routes.route_id. Required. Also the table's PK.
+      ['route_id', 'TEXT NOT NULL'],
+    ],
+    tableConstraints: ['PRIMARY KEY (route_id)'],
+    indexes: [['route_networks_network_idx', '(network_id)']],
   },
 };
 

@@ -31,7 +31,7 @@ export const RouteRowSchema = z.object({
   continuous_pickup: z.string().optional(),
   /** Optional. Same scheme as continuous_pickup. */
   continuous_drop_off: z.string().optional(),
-  /** Optional. Network ID for the route (related networks.txt/route_networks.txt extension). */
+  /** Optional. Network ID for the route (see networks.txt / route_networks.txt). */
   network_id: z.string().optional(),
 }).passthrough();
 

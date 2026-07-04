@@ -28,15 +28,17 @@ import { resolveRouteColors, computeNetworkColors } from './lib/route-colors.js'
 import type { SqliteFile } from './lib/types.js';
 import { OUTPUTS } from './fetch-gtfs.js';
 import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@n3ary/gtfs-spec/sql';
-import { EXTENSIONS } from './extensions.js';
+import { COLUMN_EXTENSIONS, TABLE_EXTENSIONS } from './extensions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-// The spec DDL is the canonical contract for the 9 standard tables.
-// Per-feed extensions (networks, route_networks) live in ./extensions.ts
-// and are applied after the spec schema. See ./extensions.ts for why
-// the extension tables aren't in the spec package.
+// The spec DDL is the canonical contract for the 11 standard GTFS
+// Schedule tables (agency, stops, routes, trips, stop_times, calendar,
+// calendar_dates, shapes, feed_info, networks, route_networks).
+// Producer-only extras — the computed network_color column + the
+// _neary_config metadata table — live in ./extensions.ts and are
+// applied after the spec schema. See ./extensions.ts for why.
 
 // GTFS `stop_times.txt` and `shapes.txt` routinely exceed 500 MB
 // uncompressed on national feeds. Node's max string length is
@@ -82,7 +84,7 @@ async function collectCsvRows(zip: StreamZip.StreamZipAsync, filename: string): 
 }
 
 function createSchema(db: Database.Database): void {
-  // 1. Spec DDL — the 9 standard GTFS Schedule tables, applied as the
+  // 1. Spec DDL — all 11 public GTFS Schedule tables, applied as the
   //    shared @n3ary/gtfs-spec/sql SCHEMA object so static and (later)
   //    the gtfs-rt package agree on the same shape.
   for (const [tableName, spec] of Object.entries(SCHEMA)) {
@@ -95,16 +97,20 @@ function createSchema(db: Database.Database): void {
       db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
     }
   }
-  // 2. Per-feed extension tables — not in the GTFS spec; producer-only.
-  for (const [tableName, spec] of Object.entries(EXTENSIONS)) {
+  // 2. Producer column extensions — ALTER TABLE <spec_table> ADD COLUMN.
+  //    Must run after the spec DDL (the target tables must exist).
+  for (const { table, column } of COLUMN_EXTENSIONS) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column[0]} ${column[1]};`);
+  }
+  // 3. Producer table extensions — pipeline-internal tables that
+  //    aren't part of any GTFS feed (e.g. _neary_config).
+  for (const [tableName, spec] of Object.entries(TABLE_EXTENSIONS)) {
     const cols = spec.columns.map(([n, t]) => `${n} ${t}`).join(', ');
     db.exec(`CREATE TABLE ${tableName} (${cols});`);
     for (const [idxName, idxCols] of spec.indexes ?? []) {
       db.exec(`CREATE INDEX ${idxName} ON ${tableName} ${idxCols};`);
     }
   }
-  // 3. The producer's own _neary_config table — not part of GTFS.
-  db.exec(`CREATE TABLE _neary_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 }
 
 function makeRowInserter(db: Database.Database, tableName: string, columns: ColumnSpec[]) {
@@ -207,12 +213,12 @@ export async function makeSqlite(gtfsZipPath: string, feedId: string): Promise<S
     let networkRows: Array<Record<string, unknown>> | null = null;
     let routeNetworkRows: Array<Record<string, unknown>> | null = null;
 
-    // Iterate both SCHEMA (9 standard GTFS tables) and EXTENSIONS
-    // (producer-only: networks, route_networks). The spec refactor
-    // split the source map; the ingestion loop has to cover both
-    // halves or networks.txt data never lands in the blob
-    // (regression: app favorites network filter chips disappeared).
-    for (const [tableName, spec] of Object.entries({ ...SCHEMA, ...EXTENSIONS })) {
+    // Iterate SCHEMA — all 11 public GTFS Schedule tables, including
+    // networks + route_networks. Producer-only extensions (the
+    // network_color ALTER, the _neary_config table) have no CSV source
+    // in the .zip, so they're created in createSchema() and never
+    // appear in this loop.
+    for (const [tableName, spec] of Object.entries(SCHEMA)) {
       if (!(await entryExists(zip, spec.file))) continue;
 
       if (BUFFERED.has(tableName)) {

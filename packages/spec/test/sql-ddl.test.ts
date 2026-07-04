@@ -21,9 +21,21 @@ describe('SCHEMA', () => {
     }
   });
 
-  it('does NOT include per-feed extension tables (networks, route_networks)', () => {
-    expect(SCHEMA.networks).toBeUndefined();
-    expect(SCHEMA.route_networks).toBeUndefined();
+  it('includes the public networks.txt and route_networks.txt tables', () => {
+    // networks + route_networks are public GTFS Schedule files
+    // (https://gtfs.org/schedule/reference/), not producer extensions.
+    // They belong in the spec library alongside the 9 standard tables
+    // so any consumer (or producer) can rely on SCHEMA to know the
+    // public contract. Producer-specific additions (e.g. the
+    // computed network_color column) live in the static pipeline's
+    // extensions map, not here.
+    expect(SCHEMA.networks).toBeDefined();
+    expect(SCHEMA.networks!.file).toBe('networks.txt');
+    expect(SCHEMA.route_networks).toBeDefined();
+    expect(SCHEMA.route_networks!.file).toBe('route_networks.txt');
+    // Spec-mandated: route_id is the PK alone (a route can be in at
+    // most one network per the public spec).
+    expect(SCHEMA.route_networks!.tableConstraints).toContain('PRIMARY KEY (route_id)');
   });
 
   it('marks stop_times as WITHOUT ROWID with composite PK', () => {
