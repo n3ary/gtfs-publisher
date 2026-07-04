@@ -73,7 +73,7 @@
           "required": ["type", "publisher"],
           "additionalProperties": false,
           "properties": {
-            "type":          { "enum": ["transitous", "mobility-database", "remote"] },
+            "type":          { "enum": ["transitous", "mobility-database", "remote", "adapter"] },
             "publisher":     { "type": "string", "minLength": 1 },
             "upstream_url":  { "type": ["string", "null"], "format": "uri", "description": "URL of the upstream zip. For type=transitous/mobility-database, the resolved Transitous mirror; for type=remote, the externally-built GTFS zip declared in feeds/<id>/config.json source.url." },
             "upstream_etag": { "type": ["string", "null"], "description": "HTTP ETag of upstream zip. Used to skip download + convert when upstream hasn't changed." }
@@ -84,7 +84,8 @@
           "required": ["sqlite_gz"],
           "additionalProperties": false,
           "properties": {
-            "sqlite_gz": { "type": "string", "minLength": 1 }
+            "sqlite_gz": { "type": "string", "minLength": 1 },
+            "gtfs_zip":  { "type": ["string", "null"], "minLength": 1 }
           }
         },
         "size_bytes": {
@@ -92,7 +93,8 @@
           "required": ["sqlite_gz"],
           "additionalProperties": false,
           "properties": {
-            "sqlite_gz": { "type": "integer", "minimum": 0 }
+            "sqlite_gz": { "type": "integer", "minimum": 0 },
+            "gtfs_zip":  { "type": ["integer", "null"], "minimum": 0 }
           }
         },
         "hash":         { "type": "string", "pattern": "^sha256-[a-f0-9]{64}$" },

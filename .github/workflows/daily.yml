@@ -76,6 +76,15 @@ jobs:
           # to derive per-feed upstream_etag for the skip-on-unchanged
           # path. Same host it publishes to below.
           R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          # Adapter-driven feeds (currently cluj-napoca via
+          # @n3ary/gtfs-adapter-cluj-napoca/ingest) need Tranzy API
+          # access. Other env knobs match the legacy
+          # cluj-napoca-gtfs-adapter CLI defaults.
+          TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY }}
+          TRANZY_AGENCY_ID: '2'
+          TRANZY_RATE_LIMIT_MS: '500'
+          GTFS_CALENDAR_DAYS: '180'
+          CTP_SERVICE_KEYS: 'lv,s,d'
 
       - name: Publish to R2
         env:
@@ -109,7 +118,7 @@ jobs:
           #    previous sqlite objects still in the bucket — rather than
           #    a new feeds.json pointing at objects that haven't landed.
           #
-          #    Cache-Control is 1 year + immutable because sqlite
+          #    Cache-Control is 1 year + immutable because sqlite + zip
           #    filenames embed the sha256 (content-addressed URL). A
           #    content change always yields a new filename, so any
           #    cached copy at an old URL is by construction still
@@ -117,8 +126,14 @@ jobs:
           #    the `.gz` extension may still apply to the response
           #    header seen by clients (~4h), but that's irrelevant —
           #    the URL never serves different bytes.
+          #
+          #    Both .sqlite3.gz and .gtfs.zip are uploaded from the
+          #    same content-addressed pool. Each is named
+          #    `<id>-<hash12>.<ext>` so the same URL never serves
+          #    different bytes.
           shopt -s nullglob
-          for f in packages/gtfs-static/outputs/*.sqlite3.gz; do
+          for f in packages/gtfs-static/outputs/*.sqlite3.gz packages/gtfs-static/outputs/*.gtfs.zip; do
+            [ -e "$f" ] || continue
             name=$(basename "$f")
             echo "[publish] uploading $name ($(du -h "$f" | cut -f1))"
             aws s3 cp "$f" "s3://$BUCKET/$name" \
@@ -128,7 +143,7 @@ jobs:
           done
 
           # 2. Upload feeds.json last — the "commit" that flips clients
-          #    over to any new sqlite objects uploaded above.
+          #    over to any new sqlite + zip objects uploaded above.
           echo "[publish] uploading feeds.json"
           aws s3 cp packages/gtfs-static/outputs/feeds.json "s3://$BUCKET/feeds.json" \
             --endpoint-url "$ENDPOINT" \
@@ -137,11 +152,12 @@ jobs:
 
           # 3. Prune EVERY orphan the new feeds.json doesn't reference.
           #    Mandatory hygiene: after each publish the bucket must
-          #    contain only feeds.json + each referenced <id>.sqlite3.gz.
-          #    Anything else (renamed feeds, test probes, prior-schema
-          #    layouts) gets removed here so the bucket never accretes.
-          #    Single source of truth: feeds.json files.sqlite_gz.
-          EXPECTED=$(jq -r '["feeds.json"] + [.feeds[].files.sqlite_gz | select(.)] | .[]' packages/gtfs-static/outputs/feeds.json | sort -u)
+          #    contain only feeds.json + each referenced <id>.sqlite3.gz
+          #    + each referenced <id>.gtfs.zip. Anything else (renamed
+          #    feeds, test probes, prior-schema layouts) gets removed
+          #    here so the bucket never accretes. Single source of
+          #    truth: feeds.json files.{sqlite_gz, gtfs_zip}.
+          EXPECTED=$(jq -r '["feeds.json"] + (.feeds[].files | ([.sqlite_gz, .gtfs_zip] | select(.)[])) | .[]' packages/gtfs-static/outputs/feeds.json | sort -u)
           aws s3 ls "s3://$BUCKET/" --endpoint-url "$ENDPOINT" \
             | awk '{print $4}' \
             | while read -r name; do

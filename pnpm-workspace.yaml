@@ -25,5 +25,6 @@ minimumReleaseAgeExclude:
   - csv-parse@7.0.1
   - '@n3ary/gtfs-adapter-cluj-napoca@0.1.0'
   - '@n3ary/gtfs-adapter-cluj-napoca@0.1.1'
+  - '@n3ary/gtfs-adapter-cluj-napoca@0.2.0'
   - '@n3ary/gtfs-spec@0.3.2'
   - '@n3ary/gtfs-adapter-cluj-napoca@0.1.1'

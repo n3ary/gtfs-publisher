@@ -1,30 +1,33 @@
 #!/usr/bin/env node
 /**
- * cli.ts — daily orchestrator.
+ * cli.ts — daily orchestrator (single-publisher model).
  *
  *   1. resolve-feeds       — what are we publishing today?
- *   2. for each feed: fetch-gtfs   (download from upstream URL)
- *                     validate     (remote only — light spec-shape check)
- *                     smoke        (remote only — per-feed contract check)
- *                     derive-bbox  (read stops/agency/feed_info.txt)
- *                     make-sqlite  (gtfs.zip → sqlite3.gz) + per-feed StaticExtension
- *   3. make-app-registry → outputs/feeds.json (schema-validated)
+ *   2. for each feed:
+ *        acquireGtfs     — fetch URL OR invoke adapter.ingestBuild,
+ *                          based on feed.id. Result: a content-addressed
+ *                          .gtfs.zip staged under outputs/.
+ *        validate        — remote only — light spec-shape check
+ *        smoke           — remote only — per-feed contract check
+ *        derive-bbox     — read stops/agency/feed_info.txt
+ *        make-sqlite     — gtfs.zip → sqlite3.gz + per-feed StaticExtension
+ *   3. make-app-registry → outputs/feeds.json (schema-validated, lists
+ *                          both sqlite AND zip URLs)
  *
  * Output layout (under `outputs/`):
  *   outputs/feeds.json
- *   outputs/<id>-<hash12>.sqlite3.gz  — content-addressed URL
+ *   outputs/<id>-<hash12>.sqlite3.gz   — content-addressed URL
+ *   outputs/<id>-<hash12>.gtfs.zip    — content-addressed URL (NEW)
  *
  * Publish: .github/workflows/daily.yml uploads outputs/ to Cloudflare R2.
  *
- * Per-feed `StaticExtension` knowledge comes from the matching
- * `@n3ary/gtfs-adapter-<feed>` package (e.g. cluj-napoca → the static
- * pipeline color fixup + the `_neary_config` rows from
- * `feeds/<id>/config.json`'s `timing` block). See
- * `n3ary/gtfs-adapters/adapters/<feed>/src/static/`. The generic
- * pipeline owns no per-feed defaults.
+ * Per-feed knowledge (StaticExtension + ingest pipeline) is owned by
+ * `@n3ary/gtfs-adapter-<feed>` packages. This CLI orchestrates +
+ * publishes; gtfs-adapters never touches R2.
  */
 
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,17 +40,19 @@ import { validate } from './validate.js';
 import { smokeTestRemote } from './smoke-remote.js';
 import { UA } from './lib/http.js';
 import type { StaticExtension } from './lib/extension.js';
-import type { Feed, FeedEntry, FreshEntry } from './lib/types.js';
+import type { Feed, FeedEntry, FreshEntry, GtfsFile, ZipArtifact } from './lib/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-// adapter lookup — explicit, feed-id-keyed. Maps each known feed to a
-// function that constructs its `StaticExtension` from the feed's
-// `feeds/<id>/config.json` (loaded by `loadFeedConfig`). Each adapter
-// is imported lazily so the import cost is paid only for feeds that
-// use it (currently just cluj). Future feeds plug in here, or move to
-// a manifest-driven registry once gtfs-adapters exposes one.
+// adapter lookup — explicit, feed-id-keyed. Maps each known feed to:
+//   - buildStaticExtension(feedConfig): applies per-feed sqlite extras
+//   - acquireGtfsAdapter(opts): produces the GTFS zip via the adapter's
+//     `ingestBuild()`; used in place of the upstream-URL fetch for
+//     adapter-driven feeds (currently only cluj).
+//
+// New feeds plug in here, or move to a manifest-driven registry once
+// gtfs-adapters exposes one.
 async function buildStaticExtension(feedId: string, feedConfig: Record<string, unknown> | null): Promise<StaticExtension | undefined> {
   if (!feedConfig) return undefined;
   switch (feedId) {
@@ -55,20 +60,76 @@ async function buildStaticExtension(feedId: string, feedConfig: Record<string, u
       const mod = await import('@n3ary/gtfs-adapter-cluj-napoca/static');
       return mod.clujStaticExtension(feedConfig);
     }
-    // Future per-feed adapters wire in here. Each adapter's package
-    // declares its own `staticExtension(feedConfig)` shape; the
-    // generic pipeline just passes whatever the function returns.
     default:
       return undefined;
   }
 }
 
+/**
+ * Adapter-driven GTFS zip production. Returns the same shape as
+ * `fetchGtfs()` (localPath + sizeBytes + hash) so downstream code
+ * doesn't branch. Writes the adapter's Buffer to a staging path +
+ * hashes it.
+ *
+ * `stageDir` is the per-feed staging area (typically a scratch
+ * subdirectory under outputs/; left behind for log forensics).
+ */
+async function acquireGtfsAdapter(feedId: string, opts: unknown): Promise<GtfsFile> {
+  let mod: { ingestBuild: (o: unknown) => Promise<{ zip: Buffer; sizeBytes: number }> };
+  switch (feedId) {
+    case 'cluj-napoca': {
+      mod = (await import('@n3ary/gtfs-adapter-cluj-napoca/ingest')) as typeof mod;
+      break;
+    }
+    default:
+      throw new Error(`acquireGtfsAdapter: no adapter registered for feed "${feedId}"`);
+  }
+
+  const { zip, sizeBytes } = await mod.ingestBuild(opts);
+
+  // Mirror fetchGtfs: stage under OUTPUTS and hash the staging file so
+  // the same content-addressed path naming works for both code paths.
+  mkdirSync(OUTPUTS, { recursive: true });
+  const localPath = join(OUTPUTS, `${feedId}.gtfs.zip`);
+  writeFileSync(localPath, zip);
+  const hash = 'sha256-' + createHash('sha256').update(zip).digest('hex');
+  return { localPath, sizeBytes, hash };
+}
+
+/**
+ * Top-level dispatcher. Adapter-driven feeds go through the published
+ * `@n3ary/gtfs-adapter-<feed>/ingest` entry; everything else falls
+ * back to a plain upstream URL fetch via `fetchGtfs`.
+ */
+async function acquireGtfs(feed: Feed, opts: { stageDir: string; feedConfig: Record<string, unknown> | null }): Promise<GtfsFile> {
+  switch (feed.id) {
+    case 'cluj-napoca': {
+      const apiKey = process.env.TRANZY_API_KEY;
+      if (!apiKey) {
+        throw new Error(
+          'acquireGtfs(cluj-napoca): TRANZY_API_KEY not set. See https://tranzy.dev/accounts to obtain one, ' +
+          'then add it as a GitHub Actions secret.',
+        );
+      }
+      const rateLimitMs = Number.parseInt(process.env.TRANZY_RATE_LIMIT_MS ?? '500', 10);
+      const agencyId = process.env.TRANZY_AGENCY_ID ?? '2';
+      const calendarDays = Number.parseInt(process.env.GTFS_CALENDAR_DAYS ?? '180', 10);
+      const serviceKeys = (process.env.CTP_SERVICE_KEYS ?? 'lv,s,d').split(',').map((s) => s.trim());
+      return acquireGtfsAdapter('cluj-napoca', {
+        outputDir: opts.stageDir,
+        tranzy: { apiKey, agencyId, rateLimitMs },
+        transitous: {},
+        ctp: { serviceKeys },
+        calendarDays,
+        buildDate: new Date(),
+      });
+    }
+    default:
+      return fetchGtfs(feed);
+  }
+}
+
 function loadFeedConfig(feedId: string): Record<string, unknown> | null {
-  // The feed override directory (feeds/<id>/config.json) is
-  // the per-feed manifest. The cluj adapter's `clujStaticExtension`
-  // reads its `timing` block. Other feeds may have other keys that
-  // their adapters read; both sides know about the same file because
-  // the file is committed alongside the pipeline that uses it.
   const configPath = join(ROOT, 'feeds', feedId, 'config.json');
   if (!existsSync(configPath)) return null;
   try {
@@ -85,7 +146,7 @@ const PREV_REGISTRY_URL = `${PUBLIC_BASE_URL}/feeds.json`;
 
 type PrevEntry = {
   source?: { upstream_etag?: string };
-  files?: { sqlite_gz?: string };
+  files?: { sqlite_gz?: string; gtfs_zip?: string };
 };
 
 async function fetchPreviousRegistry(): Promise<Map<string, PrevEntry>> {
@@ -95,12 +156,37 @@ async function fetchPreviousRegistry(): Promise<Map<string, PrevEntry>> {
       console.warn(`[cli] previous registry: HTTP ${res.status} — full rebuild`);
       return new Map();
     }
-    const reg = await res.json() as { feeds: PrevEntry[] };
+    const reg = (await res.json()) as { feeds: PrevEntry[] };
     return new Map(reg.feeds.map((f) => [(f as { id: string }).id, f]));
   } catch (err) {
     console.warn(`[cli] previous registry: ${(err as Error).message} — full rebuild`);
     return new Map();
   }
+}
+
+/**
+ * Final stage the zip gets written to (content-addressed). The format
+ * is `outputs/<id>-<hash12>.gtfs.zip` mirroring the existing sqlite
+ * naming, so the daily.yml R2 prune step can treat both symmetrically.
+ */
+function stageZipArtifact(gtfs: GtfsFile, feedId: string): ZipArtifact {
+  const hash12 = gtfs.hash!.replace(/^sha256-/, '').slice(0, 12);
+  const finalName = basenameContentAddressed(gtfs.localPath!, feedId, hash12);
+  mkdirSync(OUTPUTS, { recursive: true });
+  writeFileSync(finalName, readFileSync(gtfs.localPath!));
+  // Clean up the non-content-addressed staging copy.
+  try { rmSync(gtfs.localPath!); } catch { /* ignore */ }
+  return {
+    localPath: finalName,
+    sizeBytes: gtfs.sizeBytes!,
+    hash: gtfs.hash!,
+  };
+}
+
+function basenameContentAddressed(originalPath: string, feedId: string, hash12: string): string {
+  // Replace `feed-id.gtfs.zip` with `feed-id-<hash12>.gtfs.zip`.
+  const dir = dirname(originalPath);
+  return join(dir, `${feedId}-${hash12}.gtfs.zip`);
 }
 
 async function fetchUpstreamEtag(url: string): Promise<string | null> {
@@ -128,14 +214,19 @@ async function main(): Promise<void> {
     // Skip-on-unchanged: if upstream ETag is unchanged AND we already
     // shipped a hash-versioned sqlite_gz for this feed, pass the previous
     // entry through. Bypassed when FORCE_REBUILD is set.
+    //
+    // Adapter-driven feeds (cluj) don't have an upstream URL we can HEAD
+    // — fall back to FORCE_REBUILD-guarded unconditional rebuild.
     const prevEntry = prev.get(feed.id);
     const prevEtag = prevEntry?.source?.upstream_etag;
     const prevFile = prevEntry?.files?.sqlite_gz;
     const hashedFilename = typeof prevFile === 'string' &&
       new RegExp(`^${feed.id.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}-[0-9a-f]{12}\\.sqlite3\\.gz$`).test(prevFile);
-    const currentEtag = await fetchUpstreamEtag(feed.source.upstream_url!);
+    const currentEtag = feed.source.upstream_url
+      ? await fetchUpstreamEtag(feed.source.upstream_url)
+      : null;
     const forceRebuild = !!process.env.FORCE_REBUILD;
-    if (!forceRebuild && prevEtag && currentEtag === prevEtag && hashedFilename) {
+    if (!forceRebuild && currentEtag && prevEtag && currentEtag === prevEtag && hashedFilename) {
       console.log(`[cli] ${feed.id}: upstream unchanged (ETag ${currentEtag}) — reusing previous build`);
       entries.push({ reused: true, prevEntry });
       reused++;
@@ -145,44 +236,51 @@ async function main(): Promise<void> {
       console.log(`[cli] ${feed.id}: upstream unchanged (ETag ${currentEtag}) but FORCE_REBUILD set — rebuilding`);
     } else if (prevEtag && currentEtag === prevEtag && !hashedFilename) {
       console.log(`[cli] ${feed.id}: upstream unchanged but previous entry has legacy filename shape — rebuilding to migrate`);
+    } else if (prevEtag && currentEtag) {
+      console.log(`[cli] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag}) — rebuilding`);
     } else if (prevEtag) {
-      console.log(`[cli] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag ?? 'null'}) — rebuilding`);
+      console.log(`[cli] ${feed.id}: no upstream ETag (adapter-driven); previous entry available — rebuilding`);
     }
     feed._currentEtag = currentEtag;
 
     try {
-      const gtfs = await fetchGtfs(feed);
+      const stageDir = join(OUTPUTS, 'stage', feed.id);
+      const feedConfig = loadFeedConfig(feed.id);
+      const gtfs = await acquireGtfs(feed, { stageDir, feedConfig });
 
-      if (feed.source.type === 'remote') {
-        const { warnings } = validate(gtfs.localPath!);
+      if (feed.source.type === 'remote' && gtfs.localPath && existsSync(gtfs.localPath)) {
+        const { warnings } = validate(gtfs.localPath);
         for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
-        const { checks } = smokeTestRemote(gtfs.localPath!, feed._smoke);
+        const { checks } = smokeTestRemote(gtfs.localPath, feed._smoke);
         for (const c of checks) console.log(`[smoke] ${feed.id}: OK ${c}`);
       }
 
       const meta = deriveBbox(gtfs.localPath!);
-      const feedConfig = loadFeedConfig(feed.id);
       const staticExtension = await buildStaticExtension(feed.id, feedConfig);
       const sqlite = await makeSqlite(gtfs.localPath!, feed.id, staticExtension);
 
-      // The raw .gtfs.zip isn't republished — consumers fetch it from the
-      // upstream URL recorded in source.upstream_url.
-      if (gtfs.localPath && existsSync(gtfs.localPath)) {
-        unlinkSync(gtfs.localPath);
-        gtfs.localPath = null;
-        gtfs.sizeBytes = null;
-        gtfs.hash = null;
-      }
+      // Stage the GTFS zip into outputs/ as a content-addressed file
+      // (mirroring how makeSqlite outputs the sqlite). The R2 publish
+      // picks up both .sqlite3.gz and .gtfs.zip files together.
+      const zip = gtfs.hash && gtfs.sizeBytes != null
+        ? stageZipArtifact(gtfs, feed.id)
+        : null;
 
       const fresh: FreshEntry = {
-        feed, gtfs, sqlite,
+        feed, gtfs, zip, sqlite,
         upstreamEtag: feed._currentEtag ?? null,
         ...meta,
       };
       entries.push(fresh);
       console.log(
-        `[cli] ${feed.id}: bbox=[${meta.bbox.minLat},${meta.bbox.minLon}]..[${meta.bbox.maxLat},${meta.bbox.maxLon}], sqlite_gz=${sqlite ? (sqlite.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}`,
+        `[cli] ${feed.id}: bbox=[${meta.bbox.minLat},${meta.bbox.minLon}]..[${meta.bbox.maxLat},${meta.bbox.maxLon}], ` +
+        `sqlite_gz=${sqlite ? (sqlite.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}` +
+        `, zip=${zip ? (zip.sizeBytes / 1024).toFixed(1) + 'KB' : 'n/a'}`,
       );
+
+      // Clean up the stage dir; outputs/ retains only the content-
+      // addressed artifacts we actually publish.
+      if (existsSync(stageDir)) rmSync(stageDir, { recursive: true, force: true });
     } catch (err) {
       console.error(`[cli] ${feed.id}: FAILED — ${(err as Error).message}`);
       if (process.env.STRICT === 'true') throw err;
@@ -201,8 +299,6 @@ async function main(): Promise<void> {
   // OUTPUTS is referenced to ensure the import is preserved (avoid
   // tree-shaking by tsc in case future code uses it).
   void OUTPUTS;
-  void fetchPreviousRegistry;
-  void fetchUpstreamEtag;
 }
 
 main().catch((err) => {

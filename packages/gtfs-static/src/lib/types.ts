@@ -13,7 +13,7 @@ import type { Agency, Bbox, Center, Realtime, Validity, License } from '@n3ary/g
 
 export type { Agency, Bbox, Center, Realtime, Validity, License };
 
-export type SourceType = 'transitous' | 'mobility-database' | 'remote';
+export type SourceType = 'transitous' | 'mobility-database' | 'remote' | 'adapter';
 
 export type FeedSource = {
   type: SourceType;
@@ -57,9 +57,22 @@ export type SqliteFile = {
   hash: string;
 };
 
+/**
+ * The upstream GTFS .zip artifact staged under outputs/, content-
+ * addressed by its sha256 prefix. Created from `ingestBuild()`
+ * (for adapter-driven feeds) OR from a fetched URL (for plain
+ * transitous mirrors). Always published alongside the sqlite blob.
+ */
+export type ZipArtifact = {
+  localPath: string;
+  sizeBytes: number;
+  hash: string;
+};
+
 export type FreshEntry = {
   feed: Feed;
   gtfs: GtfsFile;
+  zip: ZipArtifact | null;
   sqlite: SqliteFile | null;
   upstreamEtag: string | null;
 } & DerivedMeta;

@@ -1,16 +1,16 @@
 {
+  "id": "cluj-napoca",
   "enhances": "Cluj-Napoca",
   "source": {
-    "type": "remote",
-    "publisher": "cluj-napoca-gtfs-adapter",
-    "url": "https://raw.githubusercontent.com/n3ary/cluj-napoca-gtfs-adapter/binaries/cluj-napoca.gtfs.zip"
+    "type": "adapter",
+    "publisher": "@n3ary/gtfs-adapter-cluj-napoca"
   },
   "license": {
     "attribution_text": "© Compania de Transport Public Cluj-Napoca",
     "attribution_url": "https://www.ctpcluj.ro/"
   },
   "smoke": {
-    "expectedPublisher": "cluj-napoca-gtfs-adapter",
+    "expectedPublisher": "@n3ary/gtfs-adapter-cluj-napoca",
     "tripIdPattern": "^[A-Za-z0-9]+_[01]_[A-Z]+(?:_FREQ)?_(?:\\d{4}|NT\\d{3,})$"
   },
   "timing": {

@@ -50,9 +50,11 @@ export function makeAppRegistry(feedEntries: FeedEntry[]): unknown {
           // Filename embeds first 12 hex of the hash — content-addressed
           // URL, so the R2 cache TTL cannot cause stale-bytes-at-known-URL.
           sqlite_gz: e.sqlite ? basename(e.sqlite.localPath) : null,
+          gtfs_zip: e.zip ? basename(e.zip.localPath) : null,
         },
         size_bytes: {
           sqlite_gz: e.sqlite ? e.sqlite.sizeBytes : null,
+          gtfs_zip: e.zip ? e.zip.sizeBytes : null,
         },
         hash: e.sqlite?.hash ?? null,
         generated_at: generatedAt,
