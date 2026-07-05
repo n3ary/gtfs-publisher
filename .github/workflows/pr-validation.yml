@@ -8,6 +8,14 @@ on:
 # jobs (build, version-bump, pipeline smoke) stay local because they
 # need repo secrets (NPM_TOKEN, TRANZY_API_KEY) and the full pipeline
 # runner.
+#
+# Auto-bump lives in its own non-required job (`auto-bump`) below.
+# It depends on `validate` and is intentionally NOT in the required
+# status checks: the auto-bump only edits `package.json#version`,
+# so it can't introduce a code regression, and making it required
+# would force every PR to wait for a second CI cycle (the bot
+# pushes a new commit after `validate` passes, which would otherwise
+# re-block the PR with `strict: true` status checks).
 
 permissions:
   contents: write  # needed by the version-bump action to push the bot commit
@@ -58,15 +66,6 @@ jobs:
 
       - name: Build packages
         run: pnpm build
-
-      - name: Auto-bump version to main + 1
-        uses: n3ary/actions/.github/actions/version-bump@v1
-        with:
-          # Skip the bump when the PR touches only docs/, .github/,
-          # .gitignore, or LICENSE. (default already covers .github/,
-          # .gitignore, LICENSE; explicitly including docs/ to match
-          # this repo's pipeline paths-ignore semantics).
-          bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
 
       - name: Run tests
         run: pnpm test
@@ -124,3 +123,35 @@ jobs:
             echo "[ci] (no external HTTP, synthetic GTFS zip substituted)"
             STRICT=false SKIP_PUBLISH=1 SKIP_ADAPTER_DRY_RUN=1 pnpm pipeline
           fi
+
+  auto-bump:
+    # Not in required status checks by design: see comment at the
+    # top of this file.
+    needs: validate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        # The version-bump action invokes `npm version` to bump
+        # package.json#version, which needs npm on PATH.
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+
+      - name: Auto-bump version to main + 1
+        uses: n3ary/actions/.github/actions/version-bump@v3
+        with:
+          # Skip the bump when the PR touches only docs/, .github/,
+          # .gitignore, or LICENSE. (default already covers .github/,
+          # .gitignore, LICENSE; explicitly including docs/ to match
+          # this repo's pipeline paths-ignore semantics).
+          bump-skip-paths: 'docs/,.github/,.gitignore,LICENSE'
