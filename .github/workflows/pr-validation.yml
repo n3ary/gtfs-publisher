@@ -51,14 +51,7 @@ jobs:
             echo "@n3ary:registry=https://npm.pkg.github.com"
             echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
           } > "$HOME/.npmrc"
-          # pnpm 11 supply-chain policy: lockfile integrity must match
-          # the registry's current metadata. For an adapter published
-          # mid-PR-cycle the published tarball can carry a different
-          # shasum than what the lockfile was resolved with, so a
-          # clean+re-resolve is required. The lockfile gets committed
-          # back via the auto-bump or in a follow-up commit.
-          pnpm clean --lockfile
-          pnpm install --no-frozen-lockfile --trust-lockfile
+          pnpm install --frozen-lockfile --trust-lockfile
 
       - name: Build packages
         run: pnpm build
@@ -105,20 +98,20 @@ jobs:
         # produce outputs/feeds.json + outputs/*.sqlite3.gz +
         # outputs/*.gtfs.zip without uploading to R2.
         # Adapter-driven feeds (cluj-napoca via ingestBuild) need a
-        # TRANZY_API_KEY to run end-to-end. When the secret is
-        # unavailable on PR forks, STRICT=false lets the pipeline
-        # gracefully skip the cluj feed (other transitous mirrors
-        # still publish normally).
+        # TRANZY_API_KEY to call Tranzy/Transitous/CTP upstream. When
+        # the secret is unavailable on PR forks, `SKIP_ADAPTER_DRY_RUN=1`
+        # short-circuits the cluj adapter call and substitutes a tiny
+        # synthetic GTFS zip so the rest of the pipeline (sqlite build,
+        # feeds.json emit, prune list) still exercises end-to-end with
+        # zero external HTTP — true dry mode, not fail-open.
         env:
           TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY || '' }}
-          TRANZY_AGENCY_ID: '2'
-          TRANZY_RATE_LIMIT_MS: '500'
-          GTFS_CALENDAR_DAYS: '180'
-          CTP_SERVICE_KEYS: 'lv,s,d'
+          SKIP_ADAPTER_DRY_RUN: ${{ secrets.TRANZY_API_KEY == '' && '1' || '' }}
         run: |
-          if [ -z "${TRANZY_API_KEY:-}" ]; then
-            echo "[ci] TRANZY_API_KEY unavailable on this fork — running pipeline with the cluj feed skipped."
-            STRICT=false SKIP_PUBLISH=1 pnpm pipeline || true
-          else
+          if [ -n "${TRANZY_API_KEY:-}" ]; then
+            echo "[ci] TRANZY_API_KEY present — running full pipeline."
             STRICT=false SKIP_PUBLISH=1 pnpm pipeline
+          else
+            echo "[ci] TRANZY_API_KEY unavailable on this fork — running pipeline with SKIP_ADAPTER_DRY_RUN=1 (no external HTTP)."
+            STRICT=false SKIP_PUBLISH=1 SKIP_ADAPTER_DRY_RUN=1 pnpm pipeline
           fi

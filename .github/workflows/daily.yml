@@ -78,13 +78,10 @@ jobs:
           R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
           # Adapter-driven feeds (currently cluj-napoca via
           # @n3ary/gtfs-adapter-cluj-napoca/ingest) need Tranzy API
-          # access. Other env knobs match the legacy
-          # cluj-napoca-gtfs-adapter CLI defaults.
+          # access. All other cluj-specific knobs (agencyId, rate limit,
+          # calendar window, CTP service keys) are owned by the adapter
+          # package — the orchestrator only forwards the secret.
           TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY }}
-          TRANZY_AGENCY_ID: '2'
-          TRANZY_RATE_LIMIT_MS: '500'
-          GTFS_CALENDAR_DAYS: '180'
-          CTP_SERVICE_KEYS: 'lv,s,d'
 
       - name: Publish to R2
         env:

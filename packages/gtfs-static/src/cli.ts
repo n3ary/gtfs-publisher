@@ -38,6 +38,7 @@ import { makeSqlite } from './make-sqlite.js';
 import { makeAppRegistry } from './make-app-registry.js';
 import { validate } from './validate.js';
 import { smokeTestRemote } from './smoke-remote.js';
+import { buildDryRunGtfsZip } from './dry-run-fixture.js';
 import { UA } from './lib/http.js';
 import type { StaticExtension } from './lib/extension.js';
 import type { Feed, FeedEntry, FreshEntry, GtfsFile, ZipArtifact } from './lib/types.js';
@@ -100,33 +101,41 @@ async function acquireGtfsAdapter(feedId: string, opts: unknown): Promise<GtfsFi
  * Top-level dispatcher. Adapter-driven feeds go through the published
  * `@n3ary/gtfs-adapter-<feed>/ingest` entry; everything else falls
  * back to a plain upstream URL fetch via `fetchGtfs`.
+ *
+ * Adapter-driven feeds also honour `SKIP_ADAPTER_DRY_RUN=1`: the
+ * adapter call is short-circuited and a synthetic GTFS zip from
+ * `./dry-run-fixture.js` is staged instead. Used by PR-validation on
+ * forks without `TRANZY_API_KEY` — exercises the full pipeline
+ * (deriveBbox, makeSqlite, feeds.json emit) with **zero external HTTP**,
+ * which is the actual point of dry mode (catching orchestrator-side
+ * regressions), not fail-open.
  */
 async function acquireGtfs(feed: Feed, opts: { stageDir: string; feedConfig: Record<string, unknown> | null }): Promise<GtfsFile> {
-  switch (feed.id) {
-    case 'cluj-napoca': {
-      const apiKey = process.env.TRANZY_API_KEY;
-      if (!apiKey) {
-        throw new Error(
-          'acquireGtfs(cluj-napoca): TRANZY_API_KEY not set. See https://tranzy.dev/accounts to obtain one, ' +
-          'then add it as a GitHub Actions secret.',
-        );
-      }
-      const rateLimitMs = Number.parseInt(process.env.TRANZY_RATE_LIMIT_MS ?? '500', 10);
-      const agencyId = process.env.TRANZY_AGENCY_ID ?? '2';
-      const calendarDays = Number.parseInt(process.env.GTFS_CALENDAR_DAYS ?? '180', 10);
-      const serviceKeys = (process.env.CTP_SERVICE_KEYS ?? 'lv,s,d').split(',').map((s) => s.trim());
-      return acquireGtfsAdapter('cluj-napoca', {
-        outputDir: opts.stageDir,
-        tranzy: { apiKey, agencyId, rateLimitMs },
-        transitous: {},
-        ctp: { serviceKeys },
-        calendarDays,
-        buildDate: new Date(),
-      });
+  if (feed.source.type === 'adapter') {
+    if (process.env.SKIP_ADAPTER_DRY_RUN === '1') {
+      console.log(`[cli] ${feed.id}: SKIP_ADAPTER_DRY_RUN=1 — substituting synthetic GTFS zip, no external HTTP.`);
+      const localPath = await buildDryRunGtfsZip(opts.stageDir, feed.id);
+      const buf = readFileSync(localPath);
+      const hash = 'sha256-' + createHash('sha256').update(buf).digest('hex');
+      return { localPath, sizeBytes: buf.length, hash };
     }
-    default:
-      return fetchGtfs(feed);
+    const apiKey = process.env.TRANZY_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        `acquireGtfs(${feed.id}): TRANZY_API_KEY not set. See https://tranzy.dev/accounts to obtain one, ` +
+        'then add it as a GitHub Actions secret. Set SKIP_ADAPTER_DRY_RUN=1 to run the pipeline without it.',
+      );
+    }
+    // Pass only the secret + buildDate. Static cluj-specific knobs
+    // (agencyId, serviceKeys, rateLimitMs, calendarDays) live in the
+    // adapter package — the orchestrator stays feed-agnostic.
+    return acquireGtfsAdapter(feed.id, {
+      outputDir: opts.stageDir,
+      tranzy: { apiKey },
+      buildDate: new Date(),
+    });
   }
+  return fetchGtfs(feed);
 }
 
 function loadFeedConfig(feedId: string): Record<string, unknown> | null {
