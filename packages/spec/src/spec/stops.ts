@@ -20,8 +20,6 @@ export const StopRowSchema = z.object({
   stop_lat: z.string().optional(),
   /** Conditionally required (required if location_type is empty or 0). Longitude. */
   stop_lon: z.string().optional(),
-  /** Optional. 0=stop/platform, 1=station, 2=entrance/exit, 3=generic node, 4=boarding area. */
-  stop_lat_lon_present: z.string().optional(),
   /** Optional. Zone ID. */
   zone_id: z.string().optional(),
   /** Optional. URL of a web page about the stop. */

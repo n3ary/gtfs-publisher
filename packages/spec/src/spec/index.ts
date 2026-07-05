@@ -19,6 +19,12 @@
  * vendor-specific fields). Validation rejects obviously bad values
  * (e.g. `agency_url: ""`) but doesn't lock down the column set.
  *
+ * The serializer (`serializeRows`, `serializeRow`) is re-exported
+ * here so adapters get schemas + the writer that pairs with them
+ * from a single import path. The column order comes from
+ * `Object.keys(schema.shape)` — same source the parser validates
+ * against, so header + values can't drift.
+ *
  * Per-feed quirks belong in `packages/gtfs-rt/src/quirks/<feed>.ts`,
  * never here. This module is GTFS-spec only.
  */
@@ -31,6 +37,8 @@ export * from './stop_times.js';
 export * from './calendar.js';
 export * from './calendar_dates.js';
 export * from './shapes.js';
+export * from './frequencies.js';
 export * from './feed_info.js';
 export * from './networks.js';
 export * from './route_networks.js';
+export { serializeRows, serializeRow } from '../serialize/index.js';

@@ -9,3 +9,4 @@
 export * from './spec/index.js';
 export * from './schema/index.js';
 export * from './sql/index.js';
+export * from './serialize/index.js';

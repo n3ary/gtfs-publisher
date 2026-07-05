@@ -1,6 +1,6 @@
 {
   "name": "@n3ary/gtfs-spec",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": false,
   "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
@@ -26,6 +26,10 @@
     "./shape": {
       "types": "./dist/shape/index.d.ts",
       "import": "./dist/shape/index.js"
+    },
+    "./serialize": {
+      "types": "./dist/serialize/index.d.ts",
+      "import": "./dist/serialize/index.js"
     }
   },
   "scripts": {
@@ -53,6 +57,7 @@
   "homepage": "https://github.com/n3ary/gtfs-publisher#readme",
   "dependencies": {
     "csv-parse": "^7.0.1",
+    "csv-stringify": "^6.8.1",
     "zod": "^4.4.0"
   },
   "devDependencies": {
