@@ -1,6 +1,6 @@
 {
   "name": "@n3ary/gtfs-spec",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": false,
   "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",

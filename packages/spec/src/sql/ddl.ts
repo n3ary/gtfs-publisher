@@ -293,9 +293,12 @@ export const SCHEMA: Record<string, SchemaSpec> = {
         "CHECK(departure_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR departure_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
       // Required. Foreign ID → stops.stop_id.
       ['stop_id', 'TEXT NOT NULL'],
-      // Required. Monotonically increasing per trip.
+      // Required. Monotonically increasing per trip. GTFS spec says
+      // "non-negative integer" — feeds in the wild include 0
+      // (Transitous uses it for the origin stop). >0 was too strict;
+      // use >=0 to match the spec.
       ['stop_sequence', 'INTEGER NOT NULL',
-        'CHECK(stop_sequence > 0)'],
+        'CHECK(stop_sequence >= 0)'],
       // Optional. Overrides trips.trip_headsign.
       ['stop_headsign', 'TEXT'],
       // Optional / conditionally forbidden. 0..3.
@@ -382,9 +385,11 @@ export const SCHEMA: Record<string, SchemaSpec> = {
       // Required. -180..180.
       ['shape_pt_lon', 'REAL NOT NULL',
         'CHECK(shape_pt_lon >= -180 AND shape_pt_lon <= 180)'],
-      // Required. Monotonically increasing per shape_id.
+      // Required. Monotonically increasing per shape_id. GTFS spec:
+      // non-negative integer. Some real feeds (e.g. Transitous) use
+      // 0 for the origin point.
       ['shape_pt_sequence', 'INTEGER NOT NULL',
-        'CHECK(shape_pt_sequence > 0)'],
+        'CHECK(shape_pt_sequence >= 0)'],
       // Optional. Non-negative float; units must match stop_times.
       ['shape_dist_traveled', 'REAL',
         'CHECK(shape_dist_traveled IS NULL OR shape_dist_traveled >= 0)'],
