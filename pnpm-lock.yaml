@@ -58,8 +58,8 @@ importers:
   packages/gtfs-static:
     dependencies:
       '@n3ary/gtfs-adapter-cluj-napoca':
-        specifier: 0.3.0
-        version: 0.3.0(better-sqlite3@12.11.1)
+        specifier: 0.3.1
+        version: 0.3.1(better-sqlite3@12.11.1)
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../spec
@@ -470,8 +470,8 @@ packages:
     resolution: {integrity: sha512-TuB0x50EoAvEX/UEWITd8Mkn3WhiTjSvbTMCLj0BhsQEl5iUzjXdA0bETEVpTk+5TGTLR6QktI9H4hLviVeaAQ==}
     engines: {node: '>=v12.0.0'}
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.0':
-    resolution: {integrity: sha512-OFNIknk0gvmc5TA6SAKJBmZ35SI4QfRmyzaoFckc6GXlfi6IXz7pIN3owf+wjZT8h0VkUwaS8X69bqf7vtJJ5w==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.0/aa8affc23bb94ddb7de35b1ac3d3193fdaf9b493}
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.1':
+    resolution: {integrity: sha512-5znRsDQ+Z5LK//v6rBUL8JJ3SENJn8JQPN4LEjp7ISSJ7ufIxE8P7auq6wkbFUXmI50Wl+G16nVTneKbkuFtIw==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.1/3950e0272148cf43ef7f1b701161937767fffff3}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -2178,7 +2178,7 @@ snapshots:
     dependencies:
       lodash: 4.18.1
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.0(better-sqlite3@12.11.1)':
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.1(better-sqlite3@12.11.1)':
     dependencies:
       '@n3ary/gtfs-spec': link:packages/spec
       archiver: 8.0.0
