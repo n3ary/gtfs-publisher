@@ -59,6 +59,17 @@ type GhTreeResponse = { tree?: GhTreeNode[] };
 let _treeCache: string[] | null = null;
 async function getRtCatalogPaths(): Promise<string[]> {
   if (_treeCache) return _treeCache;
+  // SKIP_ADAPTER_DRY_RUN=1 is the orchestrator's "zero external HTTP"
+  // mode (PR-validation on forks without TRANZY_API_KEY). Returning an
+  // empty list means RT resolution falls through to null — feeds
+  // without explicit realtime config in feeds.json still work; feeds
+  // that depend on MDB RT resolution just publish without the realtime
+  // field, which is the safe failure mode.
+  if (process.env.SKIP_ADAPTER_DRY_RUN === '1') {
+    console.warn('[mdb-rt] SKIP_ADAPTER_DRY_RUN=1 — skipping MDB catalog fetch (no realtime resolution)');
+    _treeCache = [];
+    return _treeCache;
+  }
   const tree = (await fetchJson(TREE_URL, ghHeaders())) as GhTreeResponse;
   _treeCache = (tree.tree ?? [])
     .filter((n) => n.type === 'blob'
