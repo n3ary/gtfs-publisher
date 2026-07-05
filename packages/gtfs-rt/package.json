@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.4",
     "@n3ary/gtfs-spec": "workspace:*",
     "fastify": "^5.0.0",
     "gtfs-realtime-bindings": "^1.1.1",

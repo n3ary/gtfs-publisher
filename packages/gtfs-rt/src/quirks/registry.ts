@@ -3,8 +3,12 @@
  * feed ID → Quirk. If a feed has no quirk registered, it falls through
  * unchanged (the upstream's bytes go straight to the store, quirks
  * step is a no-op for that feed).
+ *
+ * The cluj quirk is sourced from the per-feed adapter package
+ * (@n3ary/gtfs-adapter-cluj-napoca/rt) as of v0.3.4 — see
+ * n3ary/gtfs-publisher#91 for the refactor that moved it out.
  */
-import { clujQuirk } from './cluj.js';
+import { clujQuirk } from './index.js';
 import type { Quirk } from './types.js';
 
 const QUIRKS: Readonly<Record<string, Quirk>> = {

@@ -4,18 +4,21 @@ on:
   pull_request:
     branches: [main]
 
-# Ensure the PR is up-to-date before merging (protects version sequencing).
-# GitHub branch protection "Require branches to be up to date" enforces this
-# at the merge button level; this workflow re-validates on every push.
+# Shared base PR-validation lives in n3ary/actions. Repo-specific
+# jobs (build, version-bump, pipeline smoke) stay local because they
+# need repo secrets (NPM_TOKEN, TRANZY_API_KEY) and the full pipeline
+# runner.
 
 permissions:
   contents: write  # needed by the version-bump action to push the bot commit
-  packages: read  # needed to install @n3ary/* deps from GH Packages
+  packages: read   # needed to install @n3ary/* deps from GH Packages
 
 jobs:
+  shared:
+    uses: n3ary/actions/.github/workflows/pr-validation.yml@v1
+
   validate:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v7
@@ -44,7 +47,7 @@ jobs:
         # only declares scope mapping; token wiring is here.
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          HOME: ${{ runner.temp }}/gtfs-pr-clean-home
+          HOME: ${{ runner.temp }}/gtfs-publisher-pr-clean-home
         run: |
           mkdir -p "$HOME"
           {
@@ -80,7 +83,9 @@ jobs:
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
-              docs/*|.github/*|.gitignore|LICENSE|outputs/*|packages/*/outputs/*|pnpm-lock.yaml|tsconfig*.json|packages/*/tsconfig.json) : ;;  # metadata
+              docs/*|.github/*|.gitignore|LICENSE|outputs/*) : ;;
+              packages/*/outputs/*|pnpm-lock.yaml|tsconfig*.json) : ;;
+              packages/*/tsconfig.json) : ;;
               *) NON_META="$NON_META $f" ;;
             esac
           done < <(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
@@ -94,7 +99,7 @@ jobs:
 
       - name: Run pipeline (smoke check)
         if: steps.skip-heavy.outputs.skip != 'true'
-        # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
+        # Don't actually publish - `SKIP_PUBLISH=1` makes the pipeline
         # produce outputs/feeds.json + outputs/*.sqlite3.gz +
         # outputs/*.gtfs.zip without uploading to R2.
         #
@@ -103,7 +108,7 @@ jobs:
         # `SKIP_ADAPTER_DRY_RUN=1` short-circuits the per-feed adapter
         # call and substitutes a tiny synthetic GTFS zip so the rest of
         # the pipeline (sqlite build, feeds.json emit, prune list) still
-        # exercises end-to-end with zero external HTTP — true dry mode,
+        # exercises end-to-end with zero external HTTP - true dry mode,
         # not fail-open. Today only TRANZY_API_KEY is in play (the
         # cluj adapter's only required secret); the conditional flips
         # dry-mode on if it is absent.
@@ -112,9 +117,10 @@ jobs:
           SKIP_ADAPTER_DRY_RUN: ${{ secrets.TRANZY_API_KEY == '' && '1' || '' }}
         run: |
           if [ -n "${TRANZY_API_KEY:-}" ]; then
-            echo "[ci] feed secrets present — running full pipeline."
+            echo "[ci] feed secrets present - running full pipeline."
             STRICT=false SKIP_PUBLISH=1 pnpm pipeline
           else
-            echo "[ci] feed secrets unavailable on this fork — running pipeline with SKIP_ADAPTER_DRY_RUN=1 (no external HTTP)."
+            echo "[ci] feed secrets unavailable - using SKIP_ADAPTER_DRY_RUN=1."
+            echo "[ci] (no external HTTP, synthetic GTFS zip substituted)"
             STRICT=false SKIP_PUBLISH=1 SKIP_ADAPTER_DRY_RUN=1 pnpm pipeline
           fi
