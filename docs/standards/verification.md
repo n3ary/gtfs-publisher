@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@2a7b208 on 2026-07-04 -->
+<!-- synced from n3ary/standards@433fcff on 2026-07-05 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Verification
