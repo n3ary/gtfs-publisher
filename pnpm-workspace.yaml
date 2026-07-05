@@ -39,7 +39,7 @@ minimumReleaseAge: 0
 # minutes and produce `ERR_PNPM_TARBALL_URL_MISMATCH` in CI even
 # though locally everything works.
 #
-# `trustPolicy: no-fallback` means "use the lockfile hashes as the
+# `trustPolicy: off` means "use the lockfile hashes as the
 # source of truth, don't re-verify against the live registry" —
 # same intent as `--trust-lockfile` on the CLI but persistent
 # across every `pnpm install` in every workflow. The lockfile is
@@ -47,4 +47,4 @@ minimumReleaseAge: 0
 # hashes are already trusted. This eliminates the post-publish
 # cache-lag failure mode without weakening security (an attacker
 # who can rewrite the lockfile can already rewrite the code).
-trustPolicy: no-fallback
+trustPolicy: off
