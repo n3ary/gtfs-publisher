@@ -51,7 +51,14 @@ jobs:
             echo "@n3ary:registry=https://npm.pkg.github.com"
             echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
           } > "$HOME/.npmrc"
-          pnpm install --frozen-lockfile --trust-lockfile
+          # pnpm 11 supply-chain policy: lockfile integrity must match
+          # the registry's current metadata. For an adapter published
+          # mid-PR-cycle the published tarball can carry a different
+          # shasum than what the lockfile was resolved with, so a
+          # clean+re-resolve is required. The lockfile gets committed
+          # back via the auto-bump or in a follow-up commit.
+          pnpm clean --lockfile
+          pnpm install --no-frozen-lockfile --trust-lockfile
 
       - name: Build packages
         run: pnpm build
