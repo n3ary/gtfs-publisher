@@ -41,4 +41,4 @@ export * from './frequencies.js';
 export * from './feed_info.js';
 export * from './networks.js';
 export * from './route_networks.js';
-export { serializeRows, serializeRow } from '../serialize/index.js';
+export { serializeRows, serializeRow, networksToTxt, routeNetworksToTxt } from '../serialize/index.js';

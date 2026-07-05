@@ -8,10 +8,13 @@
  *
  *   - `serializeRows(schema, rows)` — full CSV body (header + rows)
  *   - `serializeRow(schema, row)`    — single-row convenience
+ *   - `networksToTxt(rows)`          — networks.txt convenience
+ *   - `routeNetworksToTxt(rows)`    — route_networks.txt convenience
  *
- * Both are async because the underlying `csv-stringify/sync` is
+ * All async because the underlying `csv-stringify/sync` is
  * dynamic-imported (see csv-serialize.ts for why this matters for
  * browser/Worker consumers of the spec package).
  */
 
 export { serializeRows, serializeRow } from '../helper/csv-serialize.js';
+export { networksToTxt, routeNetworksToTxt } from '../helper/networks-serialize.js';
