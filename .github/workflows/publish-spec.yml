@@ -69,11 +69,11 @@ jobs:
           github.event_name == 'workflow_dispatch' &&
           github.event.inputs.version != ''
         uses: n3ary/actions/.github/actions/version-bump@v12
-          with:
-            version-input: ${{ github.event.inputs.version }}
-            package-dir: packages/spec
-            tag-name: packages/spec/v{version}
-            commit-message-override: 'chore(release): spec v{version}'
+        with:
+          version-input: ${{ github.event.inputs.version }}
+          package-dir: packages/spec
+          tag-name: packages/spec/v{version}
+          commit-message-override: 'chore(release): spec v{version}'
 
       - name: Publish to GitHub Packages
         # Always builds the latest spec/ contents and publishes. The
