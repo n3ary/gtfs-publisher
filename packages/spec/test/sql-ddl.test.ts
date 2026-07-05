@@ -44,21 +44,26 @@ describe('SCHEMA', () => {
     expect(stopTimes.tableConstraints).toContain('PRIMARY KEY (trip_id, stop_sequence)');
   });
 
-  it('every column is a [name, type] tuple', () => {
+  it('every column is a [name, type, check?] tuple', () => {
     for (const [tableName, spec] of Object.entries(SCHEMA)) {
       for (const col of spec.columns) {
-        expect(col).toHaveLength(2);
-        const [name, type] = col;
+        // ColumnSpec = [name, type, check?]. check is optional; if
+        // present it must be a non-empty string.
+        expect(col.length).toBeGreaterThanOrEqual(2);
+        expect(col.length).toBeLessThanOrEqual(3);
+        const [name, type, check] = col;
         expect(typeof name).toBe('string');
         expect(name.length).toBeGreaterThan(0);
         expect(typeof type).toBe('string');
         expect(type.length).toBeGreaterThan(0);
+        if (check !== undefined) {
+          expect(typeof check).toBe('string');
+          expect(check.length).toBeGreaterThan(0);
+          // CHECK clauses should always reference the column itself.
+          expect(check.toLowerCase()).toContain(name.toLowerCase());
+        }
         // GTFS column names are snake_case. No spaces, no uppercase.
         expect(name).toMatch(/^[a-z][a-z0-9_]*$/);
-        // Tabulate a warning for human reading; do not throw.
-        if (!/^[A-Z]/.test(name)) continue;
-        // (no-op; keep the assertion in case name ever drifts)
-        expect(tableName).toBe(tableName);
       }
     }
   });
@@ -150,5 +155,169 @@ describe('REQUIRED_TABLES', () => {
     expect([...REQUIRED_TABLES].sort()).toEqual(
       ['agency', 'routes', 'stop_times', 'stops', 'trips'],
     );
+  });
+});
+
+describe('CHECK constraints (Layer 2: per-row invariants)', () => {
+  it('rejects stop_lat out of [-90, 90]', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec("PRAGMA foreign_keys = ON;");
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      expect(() =>
+        db.prepare("INSERT INTO stops (stop_id, stop_lat) VALUES ('S1', 200.0)").run()
+      ).toThrow(/CHECK constraint failed: stop_lat/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects stop_lon out of [-180, 180]', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      expect(() =>
+        db.prepare("INSERT INTO stops (stop_id, stop_lon) VALUES ('S2', -200.0)").run()
+      ).toThrow(/CHECK constraint failed: stop_lon/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects location_type out of [0, 4]', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      expect(() =>
+        db.prepare("INSERT INTO stops (stop_id, location_type) VALUES ('S3', 99)").run()
+      ).toThrow(/CHECK constraint failed: location_type/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects route_color not 6 chars', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      expect(() =>
+        db.prepare("INSERT INTO routes (route_id, route_type, route_color) VALUES ('R1', 3, 'FFFFFF')").run()
+      ).not.toThrow(); // 6 chars = OK
+      expect(() =>
+        db.prepare("INSERT INTO routes (route_id, route_type, route_color) VALUES ('R2', 3, 'FFF')").run()
+      ).toThrow(/CHECK constraint failed: route_color/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects arrival_time not in HH:MM:SS format', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO stops (stop_id) VALUES ('S1')").run();
+      db.prepare("INSERT INTO routes (route_id, route_type) VALUES ('R1', 3)").run();
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R1', 'SVC')").run();
+      expect(() =>
+        db.prepare("INSERT INTO stop_times (trip_id, arrival_time, departure_time, stop_id, stop_sequence) VALUES ('T1', '25:99', '26:00', 'S1', 1)").run()
+      ).toThrow(/CHECK constraint failed: arrival_time/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects calendar.day bits not in {0, 1}', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      expect(() =>
+        db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 2,1,1,1,1,0,0,'20260701','20261231')").run()
+      ).toThrow(/CHECK constraint failed: monday/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects calendar.start_date > end_date', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      expect(() =>
+        db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20261231','20260701')").run()
+      ).toThrow(/CHECK constraint failed: start_date/);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('FOREIGN KEY constraints (Layer 2: referential integrity)', () => {
+  it('rejects trips.route_id that does not exist in routes', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      // Calendar FK target needs to exist for trips.service_id NOT NULL
+      // (service_id isn't FK'd but service must exist for the build
+      // to make sense; let's add a calendar anyway).
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      // No route with route_id='R_GHOST' — insert should fail.
+      expect(() =>
+        db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R_GHOST', 'SVC')").run()
+      ).toThrow(/FOREIGN KEY constraint failed/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects stop_times.trip_id that does not exist in trips', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO stops (stop_id) VALUES ('S1')").run();
+      expect(() =>
+        db.prepare("INSERT INTO stop_times (trip_id, arrival_time, departure_time, stop_id, stop_sequence) VALUES ('T_GHOST', '08:00:00', '08:00:00', 'S1', 1)").run()
+      ).toThrow(/FOREIGN KEY constraint failed/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects stop_times.stop_id that does not exist in stops', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO stops (stop_id) VALUES ('S1')").run();
+      db.prepare("INSERT INTO routes (route_id, route_type) VALUES ('R1', 3)").run();
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R1', 'SVC')").run();
+      expect(() =>
+        db.prepare("INSERT INTO stop_times (trip_id, arrival_time, departure_time, stop_id, stop_sequence) VALUES ('T1', '08:00:00', '08:00:00', 'S_GHOST', 1)").run()
+      ).toThrow(/FOREIGN KEY constraint failed/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects calendar_dates.service_id that does not exist in calendar', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      expect(() =>
+        db.prepare("INSERT INTO calendar_dates (service_id, date, exception_type) VALUES ('SVC_GHOST', '20260701', 1)").run()
+      ).toThrow(/FOREIGN KEY constraint failed/);
+    } finally {
+      db.close();
+    }
   });
 });

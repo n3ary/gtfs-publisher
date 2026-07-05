@@ -88,13 +88,32 @@ async function collectCsvRows(zip: StreamZip.StreamZipAsync, filename: string): 
 }
 
 function createSchema(db: Database.Database, extensions?: StaticExtension): void {
+  // 0. Enable FK enforcement. Without this pragma, SQLite parses but
+  //    does NOT enforce FOREIGN KEY declarations — the spec DDL
+  //    declares the constraints but they're silently ignored at
+  //    INSERT time. CHECK constraints are always enforced regardless.
+  //    See https://www.sqlite.org/foreignkeys.html (pragma #1).
+  //
+  //    Per-connection — must be re-issued for every Database() instance.
+  db.exec('PRAGMA foreign_keys = ON;');
+
   // 1. Spec DDL — all 11 public GTFS Schedule tables, applied as the
   //    shared @n3ary/gtfs-spec/sql SCHEMA object so static and (later)
   //    the gtfs-rt package agree on the same shape.
   for (const [tableName, spec] of Object.entries(SCHEMA)) {
-    const cols = spec.columns.map(([n, t]) => `${n} ${t}`);
+    // Use the same renderer as SCHEMA_SQL: emit columns with their
+    // CHECK clauses inline, plus table-level constraints (PRIMARY KEY
+    // / UNIQUE / CHECK) and FOREIGN KEY declarations. The local
+    // export from the spec package gives us these declaratively.
+    const colDefs = spec.columns.map(([n, t, check]) =>
+      check ? `${n} ${t} ${check}` : `${n} ${t}`,
+    );
+    const fks = (spec.foreignKeys ?? []).map((fk) =>
+      `FOREIGN KEY (${fk.columns.join(', ')}) REFERENCES ${fk.refTable}(${fk.refColumns.join(', ')})` +
+      (fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ''),
+    );
     const constraints = spec.tableConstraints ?? [];
-    const body = [...cols, ...constraints].join(', ');
+    const body = [...colDefs, ...constraints, ...fks].join(', ');
     const opts = spec.withoutRowid ? ' WITHOUT ROWID' : '';
     db.exec(`CREATE TABLE ${tableName} (${body})${opts};`);
     for (const [idxName, idxCols] of spec.indexes ?? []) {
@@ -149,9 +168,17 @@ function insertTableExtensionRows(
 function makeRowInserter(db: Database.Database, tableName: string, columns: ColumnSpec[]) {
   const colNames = columns.map(([n]) => n);
   const placeholders = colNames.map(() => '?').join(', ');
-  // OR IGNORE: external feeds occasionally violate PK uniqueness (duplicate
-  // stop_id rows for parent stations etc.); we drop dupes rather than error.
-  const stmt = db.prepare(`INSERT OR IGNORE INTO ${tableName} (${colNames.join(', ')}) VALUES (${placeholders})`);
+  // Plain INSERT (not INSERT OR IGNORE) — let CHECK + FK constraint
+  // violations surface as errors. With FKs on, a missing parent row
+  // or an out-of-range coordinate fails the whole batch with a clear
+  // SQLite error naming the violated constraint. This is the
+  // "hard fail" contract from the user's request — bad adapter
+  // output aborts the build instead of shipping silently.
+  //
+  // (The previous OR IGNORE was added when external feeds occasionally
+  // had duplicate stop_id rows for parent stations; we now expect
+  // upstream feeds to be clean and reject malformed input loudly.)
+  const stmt = db.prepare(`INSERT INTO ${tableName} (${colNames.join(', ')}) VALUES (${placeholders})`);
   const insertBatch = db.transaction((batch: Array<Record<string, string>>) => {
     for (const row of batch) {
       const values = colNames.map((c) => {
