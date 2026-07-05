@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@2a7b208 on 2026-07-04 -->
+<!-- synced from n3ary/standards@063866e on 2026-07-05 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Agent worktrees
@@ -68,7 +68,7 @@ repo), `git worktree remove <path>`, re-apply on the main branch.
 ## Shared contracts first
 
 For multi-worktree efforts (e.g. the producer monorepo restructure
-tracked in [neary-gtfs#34](https://github.com/n3ary/gtfs-publisher/issues/34)),
+tracked in [neary-gtfs#34](https://github.com/n3ary/gtfs/issues/34)),
 stabilize shared contracts — interfaces, schemas, route tables, file
 layout, test shape — on the base branch **before** creating parallel
 worktrees. The shared layer is what most often turns parallel work into
