@@ -4,9 +4,10 @@
  *
  *   1. resolve-feeds       — what are we publishing today?
  *   2. for each feed:
- *        acquireGtfs     — fetch URL OR invoke adapter.ingestBuild,
- *                          based on feed.id. Result: a content-addressed
- *                          .gtfs.zip staged under outputs/.
+ *        acquireGtfs     — fetch URL OR invoke the feed's adapter's
+ *                          ingestBuild (selected by feed.source.type
+ *                          + source.publisher). Result: a content-
+ *                          addressed .gtfs.zip staged under outputs/.
  *        validate        — remote only — light spec-shape check
  *        smoke           — remote only — per-feed contract check
  *        derive-bbox     — read stops/agency/feed_info.txt
@@ -17,13 +18,15 @@
  * Output layout (under `outputs/`):
  *   outputs/feeds.json
  *   outputs/<id>-<hash12>.sqlite3.gz   — content-addressed URL
- *   outputs/<id>-<hash12>.gtfs.zip    — content-addressed URL (NEW)
+ *   outputs/<id>-<hash12>.gtfs.zip    — content-addressed URL
  *
  * Publish: .github/workflows/daily.yml uploads outputs/ to Cloudflare R2.
  *
  * Per-feed knowledge (StaticExtension + ingest pipeline) is owned by
  * `@n3ary/gtfs-adapter-<feed>` packages. This CLI orchestrates +
- * publishes; gtfs-adapters never touches R2.
+ * publishes; gtfs-adapters never touches R2. Adapter lookup is
+ * driven entirely by `feedConfig.source.publisher` — adding a new
+ * adapter-driven feed requires no changes to this file.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,46 +49,83 @@ import type { Feed, FeedEntry, FreshEntry, GtfsFile, ZipArtifact } from './lib/t
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-// adapter lookup — explicit, feed-id-keyed. Maps each known feed to:
-//   - buildStaticExtension(feedConfig): applies per-feed sqlite extras
-//   - acquireGtfsAdapter(opts): produces the GTFS zip via the adapter's
-//     `ingestBuild()`; used in place of the upstream-URL fetch for
-//     adapter-driven feeds (currently only cluj).
-//
-// New feeds plug in here, or move to a manifest-driven registry once
-// gtfs-adapters exposes one.
-async function buildStaticExtension(feedId: string, feedConfig: Record<string, unknown> | null): Promise<StaticExtension | undefined> {
-  if (!feedConfig) return undefined;
-  switch (feedId) {
-    case 'cluj-napoca': {
-      const mod = await import('@n3ary/gtfs-adapter-cluj-napoca/static');
-      return mod.clujStaticExtension(feedConfig);
-    }
-    default:
-      return undefined;
-  }
+/**
+ * Resolve the adapter package name for a feed. Driven entirely by
+ * the feed config's `source.publisher` — no per-feed lookup table
+ * in the orchestrator.
+ */
+function adapterPublisher(feedConfig: Record<string, unknown> | null): string | null {
+  const source = feedConfig?.source as { publisher?: unknown } | undefined;
+  return typeof source?.publisher === 'string' ? source.publisher : null;
 }
 
 /**
- * Adapter-driven GTFS zip production. Returns the same shape as
- * `fetchGtfs()` (localPath + sizeBytes + hash) so downstream code
- * doesn't branch. Writes the adapter's Buffer to a staging path +
- * hashes it.
- *
- * `stageDir` is the per-feed staging area (typically a scratch
- * subdirectory under outputs/; left behind for log forensics).
+ * Build a per-feed `StaticExtension` by dynamic-importing the
+ * adapter package's `/static` subpath and calling its generic
+ * `staticExtension(feedConfig)` factory. The factory name is
+ * stable across adapters; the orchestrator never branches on
+ * feed id.
  */
-async function acquireGtfsAdapter(feedId: string, opts: unknown): Promise<GtfsFile> {
-  let mod: { ingestBuild: (o: unknown) => Promise<{ zip: Buffer; sizeBytes: number }> };
-  switch (feedId) {
-    case 'cluj-napoca': {
-      mod = (await import('@n3ary/gtfs-adapter-cluj-napoca/ingest')) as typeof mod;
-      break;
-    }
-    default:
-      throw new Error(`acquireGtfsAdapter: no adapter registered for feed "${feedId}"`);
+async function buildStaticExtension(feedConfig: Record<string, unknown> | null): Promise<StaticExtension | undefined> {
+  const publisher = adapterPublisher(feedConfig);
+  if (!publisher) return undefined;
+  const mod = (await import(`${publisher}/static`)) as {
+    staticExtension?: (cfg: Record<string, unknown>) => StaticExtension;
+  };
+  if (typeof mod.staticExtension !== 'function') {
+    throw new Error(`${publisher}/static: must export a staticExtension(feedConfig) factory.`);
   }
+  return mod.staticExtension(feedConfig ?? {});
+}
 
+/**
+ * Read `feedConfig.secrets[]` (a list of process.env names the
+ * adapter needs) and resolve each from the current environment.
+ * Missing secrets throw with a clear message naming the feed + the
+ * variable. Used by `acquireGtfs` to build the generic `secrets`
+ * map that the adapter's `ingestBuild` consumes.
+ */
+function collectSecrets(feedId: string, feedConfig: Record<string, unknown> | null): Record<string, string | undefined> {
+  const declared = (feedConfig?.secrets as unknown) ?? [];
+  if (!Array.isArray(declared)) return {};
+  const out: Record<string, string | undefined> = {};
+  const missing: string[] = [];
+  for (const name of declared) {
+    if (typeof name !== 'string') continue;
+    const value = process.env[name];
+    if (!value) missing.push(name);
+    out[name] = value;
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `acquireGtfs(${feedId}): missing secret(s) from feed config's secrets[]: ${missing.join(', ')}. ` +
+      'Add them as GitHub Actions secrets on this repo, or set SKIP_ADAPTER_DRY_RUN=1 for a dry run.',
+    );
+  }
+  return out;
+}
+
+/**
+ * Adapter-driven GTFS zip production. Dynamic-imports the adapter's
+ * `/ingest` subpath and calls its `ingestBuild({ outputDir, buildDate,
+ * secrets })` entry. The orchestrator does not know what the adapter
+ * does internally — it only passes through the staged outputDir,
+ * the build clock, and the secrets map derived from the feed config.
+ *
+ * Returns the same shape as `fetchGtfs()` (localPath + sizeBytes +
+ * hash) so downstream code doesn't branch.
+ */
+async function acquireGtfsAdapter(feedId: string, publisher: string, opts: {
+  outputDir: string;
+  buildDate: Date;
+  secrets: Record<string, string | undefined>;
+}): Promise<GtfsFile> {
+  const mod = (await import(`${publisher}/ingest`)) as {
+    ingestBuild?: (o: unknown) => Promise<{ zip: Buffer; sizeBytes: number }>;
+  };
+  if (typeof mod.ingestBuild !== 'function') {
+    throw new Error(`${publisher}/ingest: must export an ingestBuild(opts) function.`);
+  }
   const { zip, sizeBytes } = await mod.ingestBuild(opts);
 
   // Mirror fetchGtfs: stage under OUTPUTS and hash the staging file so
@@ -98,44 +138,44 @@ async function acquireGtfsAdapter(feedId: string, opts: unknown): Promise<GtfsFi
 }
 
 /**
- * Top-level dispatcher. Adapter-driven feeds go through the published
- * `@n3ary/gtfs-adapter-<feed>/ingest` entry; everything else falls
- * back to a plain upstream URL fetch via `fetchGtfs`.
+ * Top-level dispatcher. Feeds with `source.type === 'adapter'` go
+ * through the adapter package's `ingestBuild` (selected by the feed
+ * config's `source.publisher`); everything else falls back to a
+ * plain upstream URL fetch via `fetchGtfs`.
  *
  * Adapter-driven feeds also honour `SKIP_ADAPTER_DRY_RUN=1`: the
  * adapter call is short-circuited and a synthetic GTFS zip from
  * `./dry-run-fixture.js` is staged instead. Used by PR-validation on
- * forks without `TRANZY_API_KEY` — exercises the full pipeline
- * (deriveBbox, makeSqlite, feeds.json emit) with **zero external HTTP**,
- * which is the actual point of dry mode (catching orchestrator-side
- * regressions), not fail-open.
+ * forks without the feed's declared secrets — exercises the full
+ * pipeline (deriveBbox, makeSqlite, feeds.json emit) with **zero
+ * external HTTP**, which is the actual point of dry mode (catching
+ * orchestrator-side regressions), not fail-open.
  */
 async function acquireGtfs(feed: Feed, opts: { stageDir: string; feedConfig: Record<string, unknown> | null }): Promise<GtfsFile> {
-  if (feed.source.type === 'adapter') {
-    if (process.env.SKIP_ADAPTER_DRY_RUN === '1') {
-      console.log(`[cli] ${feed.id}: SKIP_ADAPTER_DRY_RUN=1 — substituting synthetic GTFS zip, no external HTTP.`);
-      const localPath = await buildDryRunGtfsZip(opts.stageDir, feed.id);
-      const buf = readFileSync(localPath);
-      const hash = 'sha256-' + createHash('sha256').update(buf).digest('hex');
-      return { localPath, sizeBytes: buf.length, hash };
-    }
-    const apiKey = process.env.TRANZY_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        `acquireGtfs(${feed.id}): TRANZY_API_KEY not set. See https://tranzy.dev/accounts to obtain one, ` +
-        'then add it as a GitHub Actions secret. Set SKIP_ADAPTER_DRY_RUN=1 to run the pipeline without it.',
-      );
-    }
-    // Pass only the secret + buildDate. Static cluj-specific knobs
-    // (agencyId, serviceKeys, rateLimitMs, calendarDays) live in the
-    // adapter package — the orchestrator stays feed-agnostic.
-    return acquireGtfsAdapter(feed.id, {
-      outputDir: opts.stageDir,
-      tranzy: { apiKey },
-      buildDate: new Date(),
-    });
+  if (feed.source.type !== 'adapter') return fetchGtfs(feed);
+
+  if (process.env.SKIP_ADAPTER_DRY_RUN === '1') {
+    console.log(`[cli] ${feed.id}: SKIP_ADAPTER_DRY_RUN=1 — substituting synthetic GTFS zip, no external HTTP.`);
+    const localPath = await buildDryRunGtfsZip(opts.stageDir, feed.id);
+    const buf = readFileSync(localPath);
+    const hash = 'sha256-' + createHash('sha256').update(buf).digest('hex');
+    return { localPath, sizeBytes: buf.length, hash };
   }
-  return fetchGtfs(feed);
+
+  const publisher = adapterPublisher(opts.feedConfig);
+  if (!publisher) {
+    throw new Error(
+      `acquireGtfs(${feed.id}): feed.source.type === 'adapter' but feedConfig.source.publisher is missing. ` +
+      'Add a "publisher" field under the feed config\'s "source" object (e.g. "@n3ary/gtfs-adapter-<feed>").',
+    );
+  }
+  const secrets = collectSecrets(feed.id, opts.feedConfig);
+
+  return acquireGtfsAdapter(feed.id, publisher, {
+    outputDir: opts.stageDir,
+    buildDate: new Date(),
+    secrets,
+  });
 }
 
 function loadFeedConfig(feedId: string): Record<string, unknown> | null {
@@ -265,7 +305,7 @@ async function main(): Promise<void> {
       }
 
       const meta = deriveBbox(gtfs.localPath!);
-      const staticExtension = await buildStaticExtension(feed.id, feedConfig);
+      const staticExtension = await buildStaticExtension(feedConfig);
       const sqlite = await makeSqlite(gtfs.localPath!, feed.id, staticExtension);
 
       // Stage the GTFS zip into outputs/ as a content-addressed file

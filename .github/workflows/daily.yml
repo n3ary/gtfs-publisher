@@ -76,11 +76,12 @@ jobs:
           # to derive per-feed upstream_etag for the skip-on-unchanged
           # path. Same host it publishes to below.
           R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
-          # Adapter-driven feeds (currently cluj-napoca via
-          # @n3ary/gtfs-adapter-cluj-napoca/ingest) need Tranzy API
-          # access. All other cluj-specific knobs (agencyId, rate limit,
-          # calendar window, CTP service keys) are owned by the adapter
-          # package — the orchestrator only forwards the secret.
+          # Per-feed secrets. Each adapter-driven feed declares its
+          # needed env vars in feeds/<id>/config.json's `secrets[]`;
+          # the orchestrator forwards each name's value to the
+          # adapter's ingestBuild as part of a generic secrets map.
+          # Add a new env line here whenever a new feed's adapter
+          # requires a new secret.
           TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY }}
 
       - name: Publish to R2

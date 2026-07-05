@@ -25,23 +25,14 @@ allowBuilds:
   sharp: true
   workerd: true
 
-# csv-parse@7.0.1 was published ~22.5h ago at the time of the last lockfile
-# bump (2026-07-03). pnpm 11 defaults to a 24h minimumReleaseAge cutoff.
-# Once csv-parse@7.0.1 has been published for >24h at install time, drop
-# this exclusion.
 # pnpm 11 supply-chain policy rejects packages published within the
 # minimum release age cutoff (default 24h). Disable for this
 # internal monorepo: every @n3ary dep is published by us and we
 # trust our own publish pipeline. (Minutes; 0 = no cutoff.)
 minimumReleaseAge: 0
 
-# Minimum age STILL applied to non-internal packages (e.g.
-# csv-parse — a transitional entry while upstream is still
-# recent).
-minimumReleaseAgeExclude:
-  - csv-parse@7.0.1
-  - '@n3ary/gtfs-adapter-cluj-napoca@0.1.0'
-  - '@n3ary/gtfs-adapter-cluj-napoca@0.1.1'
-  - '@n3ary/gtfs-adapter-cluj-napoca@0.2.0'
-  - '@n3ary/gtfs-spec@0.3.2'
-  - '@n3ary/gtfs-adapter-cluj-napoca@0.1.1'
+# No `minimumReleaseAgeExclude` entries — every internal dep listed
+# in `package.json` has been published for >24h. If a future dep
+# gets freshly published, pnpm will fail loudly at install time
+# with a clear "below minimumReleaseAge" message; re-add it here
+# temporarily and remove once 24h have elapsed.

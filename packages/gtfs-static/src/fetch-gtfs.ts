@@ -3,8 +3,12 @@
  *
  *   source.type === "transitous" → api.transitous.org/gtfs/<iso>_<name>.gtfs.zip
  *   source.type === "remote"     → feed.source.upstream_url
- *                                  (a fully pre-built GTFS zip from another
- *                                  repo, e.g. cluj-napoca-gtfs-adapter).
+ *                                  (a fully pre-built GTFS zip from an
+ *                                  upstream we don't control).
+ *
+ * Adapter-driven feeds (`source.type === "adapter"`) bypass this
+ * module entirely — `acquireGtfs` in cli.ts calls the adapter's
+ * `ingestBuild` instead.
  *
  * Returns: { localPath, sizeBytes, hash } for downstream stages.
  */

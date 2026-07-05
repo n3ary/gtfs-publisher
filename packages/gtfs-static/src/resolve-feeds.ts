@@ -7,11 +7,13 @@
  *   - a **plain mirror** of Transitous's resolved zip (default), OR
  *   - a **remote-sourced feed** if a `feeds/<id>/config.json` declares
  *     `enhances: "<TransitousName>"` and a `source.type === "remote"`
- *     pointing at a fully pre-built GTFS zip in another repo
- *     (e.g. cluj-napoca-gtfs-adapter).
+ *     pointing at a fully pre-built GTFS zip in another repo, OR
+ *   - an **adapter-driven feed** if a `feeds/<id>/config.json` declares
+ *     `source.type === "adapter"` and a `source.publisher` naming the
+ *     adapter package (e.g. `@n3ary/gtfs-adapter-<feed>`).
  *
  * The override file may also overlay realtime / license / metadata
- * fields on top of either kind of base.
+ * fields on top of any kind of base.
  *
  * Local feed dirs without an `enhances` value (or whose `enhances`
  * doesn't match anything in `include[]`) are warned about and skipped.

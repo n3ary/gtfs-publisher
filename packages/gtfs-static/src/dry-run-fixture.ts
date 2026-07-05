@@ -1,12 +1,13 @@
 /**
  * dry-run-fixture.ts — synthetic GTFS zip for SKIP_ADAPTER_DRY_RUN=1.
  *
- * When `SKIP_ADAPTER_DRY_RUN=1` is set (PR-validation on forks without
- * `TRANZY_API_KEY`, local sanity runs without network), the cluj adapter
- * is short-circuited and this module provides a tiny valid GTFS zip in
- * its place. The rest of the pipeline (deriveBbox, makeSqlite,
- * makeAppRegistry, daily.yml's prune list) then exercises end-to-end
- * with **zero external HTTP** — true dry mode, not fail-open.
+ * When `SKIP_ADAPTER_DRY_RUN=1` is set (PR-validation on forks
+ * without the feed's declared secrets, local sanity runs without
+ * network), the per-feed adapter call is short-circuited and this
+ * module provides a tiny valid GTFS zip in its place. The rest of
+ * the pipeline (deriveBbox, makeSqlite, makeAppRegistry, daily.yml's
+ * prune list) then exercises end-to-end with **zero external HTTP** —
+ * true dry mode, not fail-open.
  *
  * The fixture is the minimum GTFS Schedule dataset the spec requires:
  *   agency.txt, stops.txt, routes.txt, trips.txt, stop_times.txt,
@@ -52,19 +53,21 @@ export function buildDryRunGtfsZip(outputDir: string, feedId: string, buildDate:
     archive.on('error', reject);
     archive.pipe(out);
 
-    // agency.txt — single agency, Europe/Bucharest (cluj's tz) so
-    // timezone-derivation paths in makeSqlite have a known shape.
+    // agency.txt — single agency, UTC timezone so the fixture has no
+    // feed-specific time-zone assumptions.
     archive.append(
       'agency_id,agency_name,agency_url,agency_timezone\n' +
-      'A1,Dry-Run Transit,https://example.test/dry-run,Europe/Bucharest\n',
+      'A1,Dry-Run Transit,https://example.test/dry-run,UTC\n',
       { name: 'agency.txt' },
     );
 
-    // stops.txt — 2 stops so bbox has a real span.
+    // stops.txt — 2 stops so bbox has a real span. Coordinates are
+    // intentionally non-zero but otherwise arbitrary — the fixture
+    // exists to exercise pipeline shape, not to be a real feed.
     archive.append(
       'stop_id,stop_name,stop_lat,stop_lon\n' +
-      'S1,Central,46.7700,23.5900\n' +
-      'S2,North,46.7900,23.6100\n',
+      'S1,Stop-A,1.0000,1.0000\n' +
+      'S2,Stop-B,1.0100,1.0100\n',
       { name: 'stops.txt' },
     );
 

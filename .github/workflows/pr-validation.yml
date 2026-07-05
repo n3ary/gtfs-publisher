@@ -97,21 +97,24 @@ jobs:
         # Don't actually publish — `SKIP_PUBLISH=1` makes the pipeline
         # produce outputs/feeds.json + outputs/*.sqlite3.gz +
         # outputs/*.gtfs.zip without uploading to R2.
-        # Adapter-driven feeds (cluj-napoca via ingestBuild) need a
-        # TRANZY_API_KEY to call Tranzy/Transitous/CTP upstream. When
-        # the secret is unavailable on PR forks, `SKIP_ADAPTER_DRY_RUN=1`
-        # short-circuits the cluj adapter call and substitutes a tiny
-        # synthetic GTFS zip so the rest of the pipeline (sqlite build,
-        # feeds.json emit, prune list) still exercises end-to-end with
-        # zero external HTTP — true dry mode, not fail-open.
+        #
+        # Per-feed adapter secrets are declared in feeds/<id>/config.json
+        # under `secrets[]`. When ANY of them is unavailable on PR forks,
+        # `SKIP_ADAPTER_DRY_RUN=1` short-circuits the per-feed adapter
+        # call and substitutes a tiny synthetic GTFS zip so the rest of
+        # the pipeline (sqlite build, feeds.json emit, prune list) still
+        # exercises end-to-end with zero external HTTP — true dry mode,
+        # not fail-open. Today only TRANZY_API_KEY is in play (the
+        # cluj adapter's only required secret); the conditional flips
+        # dry-mode on if it is absent.
         env:
           TRANZY_API_KEY: ${{ secrets.TRANZY_API_KEY || '' }}
           SKIP_ADAPTER_DRY_RUN: ${{ secrets.TRANZY_API_KEY == '' && '1' || '' }}
         run: |
           if [ -n "${TRANZY_API_KEY:-}" ]; then
-            echo "[ci] TRANZY_API_KEY present — running full pipeline."
+            echo "[ci] feed secrets present — running full pipeline."
             STRICT=false SKIP_PUBLISH=1 pnpm pipeline
           else
-            echo "[ci] TRANZY_API_KEY unavailable on this fork — running pipeline with SKIP_ADAPTER_DRY_RUN=1 (no external HTTP)."
+            echo "[ci] feed secrets unavailable on this fork — running pipeline with SKIP_ADAPTER_DRY_RUN=1 (no external HTTP)."
             STRICT=false SKIP_PUBLISH=1 SKIP_ADAPTER_DRY_RUN=1 pnpm pipeline
           fi

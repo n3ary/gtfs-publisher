@@ -1,11 +1,11 @@
 /**
  * validate.ts — light spec-shape validator for GTFS .zips we publish.
  *
- * Runs on `source.type === 'remote'` feeds (the externally-built zips we
- * pull from sister repos like cluj-napoca-gtfs-adapter). Transitous mirrors
- * are trusted to upstream validation.
+ * Runs on `source.type === 'remote'` feeds (the externally-built zips
+ * we pull from upstream URLs we don't control). Transitous mirrors and
+ * adapter-driven feeds are trusted to upstream / adapter validation.
  *
- * Catches the bug classes a sister-repo build is realistically capable of
+ * Catches the bug classes an upstream build is realistically capable of
  * introducing:
  *
  *   - missing required file

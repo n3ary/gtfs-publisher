@@ -25,9 +25,9 @@ afterAll(() => rmSync(WORK, { recursive: true, force: true }));
 describe('dry-run-fixture (SKIP_ADAPTER_DRY_RUN=1)', () => {
   it('writes a minimal valid GTFS zip at the requested path', async () => {
     const outDir = join(WORK, 'feed');
-    const zipPath = await buildDryRunGtfsZip(outDir, 'cluj-napoca');
+    const zipPath = await buildDryRunGtfsZip(outDir, 'adapter-feed');
 
-    expect(zipPath).toMatch(/cluj-napoca-dryrun\.gtfs\.zip$/);
+    expect(zipPath).toMatch(/adapter-feed-dryrun\.gtfs\.zip$/);
     expect(existsSync(zipPath)).toBe(true);
 
     // Inspect the zip's central directory to assert the 6 required
@@ -44,10 +44,10 @@ describe('dry-run-fixture (SKIP_ADAPTER_DRY_RUN=1)', () => {
 
   it('is consumable by makeSqlite without external HTTP', async () => {
     const outDir = join(WORK, 'consume');
-    const zipPath = await buildDryRunGtfsZip(outDir, 'cluj-napoca');
+    const zipPath = await buildDryRunGtfsZip(outDir, 'adapter-feed');
 
     const { makeSqlite } = await import('../dist/make-sqlite.js');
-    const result = await makeSqlite(zipPath, 'dry-run-cluj');
+    const result = await makeSqlite(zipPath, 'dry-run-feed');
     expect(result).not.toBeNull();
     expect(existsSync(result!.localPath)).toBe(true);
     expect(result!.sizeBytes).toBeGreaterThan(0);
