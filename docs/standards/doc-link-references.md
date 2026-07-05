@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@2a7b208 on 2026-07-04 -->
+<!-- synced from n3ary/standards@063866e on 2026-07-05 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Doc link references
@@ -9,7 +9,7 @@ Two kinds of links in our docs and READMEs:
 |---|---|---|
 | External | full URL | `[pull request](https://github.com/...)` |
 | Same-repo | filename only, no path | `[agent-worktrees.md](agent-worktrees.md)` |
-| Cross-repo | repo + path, no leading slash | `[n3ary/gtfs-publisher#34](https://github.com/n3ary/gtfs-publisher/issues/34)` |
+| Cross-repo | repo + path, no leading slash | `[n3ary/gtfs#34](https://github.com/n3ary/gtfs/issues/34)` |
 
 ## The rule: filename only for same-repo links
 
