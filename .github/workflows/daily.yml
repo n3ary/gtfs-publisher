@@ -155,7 +155,24 @@ jobs:
           #    feeds, test probes, prior-schema layouts) gets removed
           #    here so the bucket never accretes. Single source of
           #    truth: feeds.json files.{sqlite_gz, gtfs_zip}.
-          EXPECTED=$(jq -r '["feeds.json"] + (.feeds[].files | ([.sqlite_gz, .gtfs_zip] | select(.)[])) | .[]' packages/gtfs-static/outputs/feeds.json | sort -u)
+          #
+          #    Two subtle jq traps fixed here (would otherwise 500
+          #    the pipeline):
+          #      a) Wrap the RHS stream in `[...]` so the `+` operator
+          #         concatenates two ARRAYS. Without the wrap, `+`
+          #         materialises the RHS as a single value when the
+          #         stream has only one element, blowing up with
+          #         "array ([\"feeds.json\"]) and string (\"cluj-napoc-...\")
+          #         cannot be added".
+          #      b) Use `(.a, .b)` (commas — produces a stream of
+          #         values) not `[.a, .b]` (an array possibly
+          #         containing null). The reused-feed path leaves
+          #         `gtfs_zip: null` when no new zip was produced;
+          #         `[null, "x"] | select(.)[]` keeps the null in
+          #         the stream (select is a no-op at array-index
+          #         level). `(.a, .b) | select(.)` filters nulls
+          #         before they're collected.
+          EXPECTED=$(jq -r '["feeds.json"] + [.feeds[].files | (.sqlite_gz, .gtfs_zip) | select(.)] | .[]' packages/gtfs-static/outputs/feeds.json | sort -u)
           aws s3 ls "s3://$BUCKET/" --endpoint-url "$ENDPOINT" \
             | awk '{print $4}' \
             | while read -r name; do
