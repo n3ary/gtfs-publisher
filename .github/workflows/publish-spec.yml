@@ -50,7 +50,7 @@ jobs:
         # Packages) as a dev-dep of the gtfs-static package. pnpm reads
         # auth from ~/.npmrc; without it, `pnpm install` 401s on that
         # tarball.
-        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v13
+        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v14
         with:
           auth-token: ${{ secrets.NPM_TOKEN }}
 

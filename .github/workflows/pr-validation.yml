@@ -42,7 +42,7 @@ jobs:
         # re-verification can reject fresh publishes within 24h of
         # their release; we don't need that since the lockfile is
         # source-tree and goes through PR review.
-        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v13
+        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v14
         with:
           auth-token: ${{ secrets.NPM_TOKEN }}
 
