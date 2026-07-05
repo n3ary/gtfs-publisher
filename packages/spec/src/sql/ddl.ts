@@ -282,15 +282,18 @@ export const SCHEMA: Record<string, SchemaSpec> = {
     columns: [
       // Required. Foreign ID → trips.trip_id.
       ['trip_id', 'TEXT NOT NULL'],
-      // Required. HH:MM:SS; >24:00:00 allowed (e.g. 25:30:00 for
-      // service crossing midnight).
-      ['arrival_time', 'TEXT NOT NULL',
+      // Conditionally required per GTFS spec — required for the first and
+      // last stops of a trip, otherwise optional. Real feeds leave it
+      // blank for intermediate stops; making it NOT NULL would reject
+      // every such row.
+      ['arrival_time', 'TEXT',
         // Accepts HH:MM:SS where H can be 2+ digits (24:00:00+ allowed
-        // per spec). Glob matches one or more leading digits.
-        "CHECK(arrival_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR arrival_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
-      // Required. Same format as arrival_time.
-      ['departure_time', 'TEXT NOT NULL',
-        "CHECK(departure_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR departure_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
+        // per spec for service crossing midnight). Glob matches one or
+        // more leading digits.
+        "CHECK(arrival_time IS NULL OR arrival_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR arrival_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
+      // Same: conditionally required.
+      ['departure_time', 'TEXT',
+        "CHECK(departure_time IS NULL OR departure_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR departure_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
       // Required. Foreign ID → stops.stop_id.
       ['stop_id', 'TEXT NOT NULL'],
       // Required. Monotonically increasing per trip. GTFS spec says
