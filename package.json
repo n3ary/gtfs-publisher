@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.31-m1",
+  "version": "0.2.32-m1",
   "private": true,
   "type": "module",
   "description": "Producer monorepo for the neary PWA — packages/static (offline pipeline), packages/rt (live RT adapter), packages/shared (@ciotlosm/neary-gtfs-core).",
