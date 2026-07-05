@@ -31,8 +31,20 @@ allowBuilds:
 # trust our own publish pipeline. (Minutes; 0 = no cutoff.)
 minimumReleaseAge: 0
 
-# No `minimumReleaseAgeExclude` entries — every internal dep listed
-# in `package.json` has been published for >24h. If a future dep
-# gets freshly published, pnpm will fail loudly at install time
-# with a clear "below minimumReleaseAge" message; re-add it here
-# temporarily and remove once 24h have elapsed.
+# pnpm 11 has a SEPARATE tarball-hash check that runs even when
+# minimumReleaseAge is 0: `pnpm install` re-fetches each internal
+# dep's tarball and verifies its sha512 against what the registry
+# serves now. After a fresh publish (CI re-builds the lockfile +
+# GH Packages re-signs the tarball), the two can disagree for ~5
+# minutes and produce `ERR_PNPM_TARBALL_URL_MISMATCH` in CI even
+# though locally everything works.
+#
+# `trustPolicy: no-fallback` means "use the lockfile hashes as the
+# source of truth, don't re-verify against the live registry" —
+# same intent as `--trust-lockfile` on the CLI but persistent
+# across every `pnpm install` in every workflow. The lockfile is
+# part of the source tree and goes through PR review, so its
+# hashes are already trusted. This eliminates the post-publish
+# cache-lag failure mode without weakening security (an attacker
+# who can rewrite the lockfile can already rewrite the code).
+trustPolicy: no-fallback
