@@ -297,11 +297,19 @@ async function main(): Promise<void> {
       const feedConfig = loadFeedConfig(feed.id);
       const gtfs = await acquireGtfs(feed, { stageDir, feedConfig });
 
-      if (feed.source.type === 'remote' && gtfs.localPath && existsSync(gtfs.localPath)) {
+      if (gtfs.localPath && existsSync(gtfs.localPath)) {
+        // validate() used to be guarded on `source.type === 'remote'`
+        // because adapter-driven feeds were assumed to be trustworthy.
+        // That assumption broke in July 2026 when a cluj-napoca adapter
+        // release emitted FK orphans and the daily cron happily shipped
+        // a corrupt feed. Run the validator for ALL feeds now — adapter
+        // and remote alike — and fail the build on any error.
         const { warnings } = validate(gtfs.localPath);
         for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
-        const { checks } = smokeTestRemote(gtfs.localPath, feed._smoke);
-        for (const c of checks) console.log(`[smoke] ${feed.id}: OK ${c}`);
+        if (feed.source.type === 'remote') {
+          const { checks } = smokeTestRemote(gtfs.localPath, feed._smoke);
+          for (const c of checks) console.log(`[smoke] ${feed.id}: OK ${c}`);
+        }
       }
 
       const meta = deriveBbox(gtfs.localPath!);
