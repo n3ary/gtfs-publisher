@@ -4,8 +4,10 @@ name: Publish @n3ary/gtfs-spec
 #
 # Triggers:
 #   - workflow_dispatch with a `version` input (e.g. "0.1.0", "0.2.0-rc.1").
-#     Bumps packages/spec/package.json, commits, tags, publishes.
-#   - push of a tag matching packages/spec/v* — publish that exact version.
+#     Bumps packages/spec/package.json on a release branch, opens a PR,
+#     waits for it to merge, then pushes the tag + publishes.
+#   - push of a tag matching packages/spec/v* -- publish that exact
+#     version (assumes the bump commit is already on main).
 #
 # The package is PUBLIC on GitHub Packages (set via `access: public` in
 # packages/spec/package.json#publishConfig at first publish). To make
@@ -31,17 +33,114 @@ on:
       - 'packages/spec/v*'
 
 permissions:
-  contents: write   # for the version-bump + tag-push path
-  packages: write   # for npm publish
-  id-token: write   # for npm publish --provenance (OIDC token from Actions)
+  contents: write    # for the version-bump + tag-push path
+  pull-requests: write  # for gh pr create / merge --auto
+  packages: write    # for npm publish
+  id-token: write    # for npm publish --provenance (OIDC token from Actions)
 
 jobs:
-  publish:
+  bump:
+    # Only run on dispatch with an explicit version. Tag-push triggers
+    # skip this job -- the bump commit is already on main, so we just
+    # publish.
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.version != ''
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.next-version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          fetch-depth: 0
+
+      - name: Set version
+        id: set-version
+        # Bumps packages/spec/package.json on a release branch (NOT on
+        # main -- branch protection blocks direct pushes). Pushes the
+        # branch; the PR step below opens + auto-merges it. Tag is
+        # pushed only after the merge lands (next step) so we never
+        # publish a tag pointing at a non-merged commit.
+        uses: n3ary/actions/.github/actions/version-bump@v19
+        with:
+          version-input: ${{ github.event.inputs.version }}
+          package-dir: packages/spec
+          push-target-branch: release/spec-v{version}
+          commit-message-override: 'chore(release): spec v{version}'
+
+      - name: Open PR + enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.set-version.outputs.next-version }}
+        run: |
+          BRANCH="release/spec-v${VERSION}"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): spec v${VERSION}" \
+            --body "Auto-generated version bump for the spec package."
+          gh pr merge --auto --rebase "$BRANCH"
+
+      - name: Wait for PR merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.set-version.outputs.next-version }}
+        # Auto-merge waits for the PR's required status checks to pass
+        # (validate, ascii-only, line-length, standards-drift). Once
+        # they pass, GitHub merges the PR. Poll until MERGED, up to
+        # 10 minutes (120 * 5s). On tag-push trigger the previous
+        # step is skipped so we never reach this step; on dispatch
+        # we always reach it because the if at the job level gates
+        # the whole bump job.
+        run: |
+          BRANCH="release/spec-v${VERSION}"
+          for i in $(seq 1 120); do
+            STATE=$(gh pr view "$BRANCH" --json state --jq .state)
+            case "$STATE" in
+              MERGED) echo "PR merged after ${i} polls"; exit 0 ;;
+              CLOSED)
+                echo "::error::PR was closed before merge"
+                exit 1 ;;
+            esac
+            echo "PR state: $STATE (poll $i/120)"
+            sleep 5
+          done
+          echo "::error::PR did not merge within 10 minutes"
+          exit 1
+
+      - name: Push tag after merge
+        env:
+          VERSION: ${{ steps.set-version.outputs.next-version }}
+        run: |
+          # Tag AFTER the PR merges so the tag's commit is on main.
+          # Pushing the tag earlier would publish a tag whose commit
+          # only exists on a release branch -- the next tag-push
+          # trigger of this workflow would then publish stale content
+          # (the old main) because GitHub checks out by tag, not by
+          # branch.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "packages/spec/v${VERSION}" "origin/main"
+          git push origin "packages/spec/v${VERSION}" --no-verify
+
+  publish:
+    # Run for both dispatch and tag-push. On dispatch, this waits for
+    # `bump` to finish (PR merged + tag pushed). On tag-push, `bump`
+    # is skipped and publish runs immediately.
+    needs: bump
+    if: >-
+      always() &&
+      (needs.bump.result == 'success' || needs.bump.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        # Check out main (not the release branch or the tag). The
+        # bump has either already merged to main (dispatch path) or
+        # was triggered by a tag pointing at a commit on main.
+        uses: actions/checkout@v7
+        with:
+          ref: main
           fetch-depth: 0
 
       - name: Setup pnpm with GH Packages auth + install
@@ -60,26 +159,7 @@ jobs:
       - name: Test packages
         run: pnpm test
 
-      - name: Set version
-        id: set-version
-        # workflow_dispatch + version input -> bump package.json + tag.
-        # Tag push -> use the version already in the tag.
-        # No version input -> publish whatever is in package.json.
-        if: >
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.version != ''
-        uses: n3ary/actions/.github/actions/version-bump@v12
-        with:
-          version-input: ${{ github.event.inputs.version }}
-          package-dir: packages/spec
-          tag-name: packages/spec/v{version}
-          commit-message-override: 'chore(release): spec v{version}'
-
       - name: Publish to GitHub Packages
-        # Always builds the latest spec/ contents and publishes. The
-        # version field is whatever's in packages/spec/package.json at
-        # this point (either pre-existing or just bumped above).
-        #
         # Set HOME to a clean temp dir so the .npmrc we write below is
         # the ONLY npmrc on the PATH for this run. Without this, the
         # runner's pre-existing ~/.npmrc (if any) can shadow our
