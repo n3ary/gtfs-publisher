@@ -14,14 +14,17 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { fetchJson, fetchToFile, assertNotWafBody } from '../src/lib/http.ts';
+import { fetchJson, fetchToFile } from '../src/lib/http.ts';
+import {
+  assertNotWafResponse,
+  ZIP_MAGIC,
+} from '@n3ary/gtfs-spec/waf';
 
 const URL = 'https://upstream.example/feed.gtfs.zip';
 
 // Minimal valid zip header for "happy path" fixtures.
 // 'PK\x03\x04' + version + flags + compression + ... truncated is fine
 // for the guard - it only checks the 4-byte magic.
-const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const VALID_ZIP_HEAD = Buffer.concat([ZIP_MAGIC, Buffer.alloc(26, 0)]);
 
 // Real-world Cloudflare challenge page (close-enough excerpt).
@@ -41,13 +44,13 @@ const GENERIC_WAF = `<!doctype html><html><body>Access denied - request blocked.
 // obviously a WAF response (not the expected catalog shape).
 const WAF_JSON = JSON.stringify({ error: 'forbidden', reason: 'access denied' });
 
-describe('assertNotWafBody', () => {
+describe('assertNotWafResponse', () => {
   it('passes a real-looking ZIP body through unchanged', async () => {
     const res = new Response(VALID_ZIP_HEAD, {
       status: 200,
       headers: { 'Content-Type': 'application/octet-stream' },
     });
-    const { buf } = await assertNotWafBody(res, URL, 'zip');
+    const { buf } = await assertNotWafResponse(res, URL, 'zip');
     expect(buf.subarray(0, 4).equals(ZIP_MAGIC)).toBe(true);
   });
 
@@ -56,7 +59,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'text/html' },
     });
-    await expect(assertNotWafBody(res, URL, 'zip'))
+    await expect(assertNotWafResponse(res, URL, 'zip'))
       .rejects.toThrow(/HTML body.*WAF \/ captcha page/);
   });
 
@@ -65,7 +68,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
-    await expect(assertNotWafBody(res, URL, 'zip'))
+    await expect(assertNotWafResponse(res, URL, 'zip'))
       .rejects.toThrow(/HTML body.*WAF \/ captcha page/);
   });
 
@@ -76,7 +79,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: {},
     });
-    await expect(assertNotWafBody(res, URL, 'zip'))
+    await expect(assertNotWafResponse(res, URL, 'zip'))
       .rejects.toThrow(/contains ".*" marker/);
   });
 
@@ -89,7 +92,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'application/octet-stream' },
     });
-    await expect(assertNotWafBody(res, URL, 'zip'))
+    await expect(assertNotWafResponse(res, URL, 'zip'))
       .rejects.toThrow(/contains ".*" marker/);
   });
 
@@ -98,7 +101,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'application/octet-stream' },
     });
-    await expect(assertNotWafBody(res, URL, 'zip'))
+    await expect(assertNotWafResponse(res, URL, 'zip'))
       .rejects.toThrow(/not a ZIP file/);
   });
 
@@ -111,7 +114,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
-    const { buf } = await assertNotWafBody(res, URL, 'json');
+    const { buf } = await assertNotWafResponse(res, URL, 'json');
     expect(JSON.parse(buf.toString('utf8'))).toEqual({ error: 'rate_limited', code: 429 });
   });
 
@@ -120,7 +123,7 @@ describe('assertNotWafBody', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
-    await expect(assertNotWafBody(res, URL, 'json'))
+    await expect(assertNotWafResponse(res, URL, 'json'))
       .rejects.toThrow(/contains ".*" marker/);
   });
 });

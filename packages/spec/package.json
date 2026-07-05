@@ -1,6 +1,6 @@
 {
   "name": "@n3ary/gtfs-spec",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "private": false,
   "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
@@ -30,6 +30,10 @@
     "./serialize": {
       "types": "./dist/serialize/index.d.ts",
       "import": "./dist/serialize/index.js"
+    },
+    "./waf": {
+      "types": "./dist/waf/index.d.ts",
+      "import": "./dist/waf/index.js"
     }
   },
   "scripts": {
