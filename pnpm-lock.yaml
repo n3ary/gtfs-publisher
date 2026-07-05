@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@n3ary/gtfs-spec': workspace:*
+
 importers:
 
   .:
@@ -467,9 +470,9 @@ packages:
     hasBin: true
     peerDependencies:
       better-sqlite3: ^12.11.1
-
-  '@n3ary/gtfs-spec@0.3.2':
-    resolution: {integrity: sha512-WEGJEijDFrhWqBICXLuKnsA5v+/LmtFN4xkQCZICMWDARGaIHC4HOusnt7NtXYzIMI2XDpU1paKrjTED6m4Gog==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-spec/0.3.2/0d0718e3fa0290b7b617e2888e3a618662ae288c}
+    peerDependenciesMeta:
+      better-sqlite3:
+        optional: true
 
   '@napi-rs/wasm-runtime@1.1.6':
     resolution: {integrity: sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==}
@@ -2165,19 +2168,15 @@ snapshots:
 
   '@n3ary/gtfs-adapter-cluj-napoca@0.2.0(better-sqlite3@12.11.1)':
     dependencies:
-      '@n3ary/gtfs-spec': 0.3.2
+      '@n3ary/gtfs-spec': link:packages/spec
       archiver: 8.0.0
-      better-sqlite3: 12.11.1
       gtfs-realtime-bindings: 1.1.1
+    optionalDependencies:
+      better-sqlite3: 12.11.1
     transitivePeerDependencies:
       - bare-abort-controller
       - bare-buffer
       - react-native-b4a
-
-  '@n3ary/gtfs-spec@0.3.2':
-    dependencies:
-      csv-parse: 7.0.1
-      zod: 4.4.3
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
