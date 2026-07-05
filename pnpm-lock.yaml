@@ -61,8 +61,8 @@ importers:
   packages/gtfs-static:
     dependencies:
       '@n3ary/gtfs-adapter-cluj-napoca':
-        specifier: 0.3.4
-        version: 0.3.4(better-sqlite3@12.11.1)
+        specifier: ^0.3.5
+        version: 0.3.5(better-sqlite3@12.11.1)
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../spec
@@ -475,6 +475,15 @@ packages:
 
   '@n3ary/gtfs-adapter-cluj-napoca@0.3.4':
     resolution: {integrity: sha512-IlAdId/wYOOSELIgxrTZAqu7lqjiZ2hGvxqZxtU3AxOSg25raFDNJY7+gwC6bQd55AAji8RmLNwkh4Dg0bsyGA==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.4/637581d3c606d3d938361e81784d800991da4ab2}
+    engines: {node: '>=24'}
+    peerDependencies:
+      better-sqlite3: ^12.11.1
+    peerDependenciesMeta:
+      better-sqlite3:
+        optional: true
+
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.5':
+    resolution: {integrity: sha512-+/pY5Ggu8wk9jyg3pntRDGDayA0lOFTcHwCsh0qcV9eBv+XoCVGLrLr3fm0LFJL08y4ACdFma/ya4w8iU2onlA==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.5/eddce15b159eeba9233fe0b5458f14528567e2f4}
     engines: {node: '>=24'}
     peerDependencies:
       better-sqlite3: ^12.11.1
@@ -2181,6 +2190,18 @@ snapshots:
       lodash: 4.18.1
 
   '@n3ary/gtfs-adapter-cluj-napoca@0.3.4(better-sqlite3@12.11.1)':
+    dependencies:
+      '@n3ary/gtfs-spec': link:packages/spec
+      archiver: 8.0.0
+      gtfs-realtime-bindings: 1.1.1
+    optionalDependencies:
+      better-sqlite3: 12.11.1
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.5(better-sqlite3@12.11.1)':
     dependencies:
       '@n3ary/gtfs-spec': link:packages/spec
       archiver: 8.0.0

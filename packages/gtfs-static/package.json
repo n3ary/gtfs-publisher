@@ -19,7 +19,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@n3ary/gtfs-adapter-cluj-napoca": "0.3.4",
+    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.5",
     "@n3ary/gtfs-spec": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
