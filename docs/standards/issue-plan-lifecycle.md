@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@063866e on 2026-07-05 -->
+<!-- synced from n3ary/standards@f478439 on 2026-07-06 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Issue vs plan lifecycle

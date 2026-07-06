@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@063866e on 2026-07-05 -->
+<!-- synced from n3ary/standards@f478439 on 2026-07-06 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Agent worktrees
@@ -94,16 +94,7 @@ Rules:
 - **No force-push on `main`.** No branch deletion of `main`.
 - **No direct push to `main`.** Even when in a hurry, even for trivial edits. The PR pipeline catches more than people think.
 
-Branch protection (configured in GitHub repo settings):
-
-| Setting | Value |
-|---|---|
-| Require PR before merging | yes |
-| Required approvals | 0 (solo-dev friendly; bump when the team grows) |
-| Require linear history | yes |
-| Allow force-push | no |
-| Allow branch deletion | no |
-| Admin override | allowed for genuine emergencies only; the bypass commit must include a `[skip ci]` or equivalent marker explaining why |
+Branch protection is configured per the org-wide standard — see [repo-settings.md](repo-settings.md) for the exact table. Quick recap of the agent-relevant rules: linear history on, no force-push, no branch deletion, `enforce_admins: on` (no override path — if the rules are blocking you, fix the workflow, don't bypass it), 0 required reviews (solo-dev default; bump when collaborators arrive).
 
 ### Exception: documented automation
 
