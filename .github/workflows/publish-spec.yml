@@ -32,9 +32,9 @@ on:
 # Safe here because this workflow only checks out main, not the PR's
 # untrusted code.
 permissions:
-  contents: read
-  packages: write
-  id-token: write
+  contents: write   # for the tag push inside package/publish
+  packages: write   # for npm publish (via package/publish)
+  id-token: write   # for npm publish --provenance (via package/publish)
 
 jobs:
   publish:
