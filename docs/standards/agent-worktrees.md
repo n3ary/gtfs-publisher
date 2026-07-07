@@ -1,107 +1,214 @@
-<!-- synced from n3ary/standards@61ded6b on 2026-07-07 -->
+<!-- synced from n3ary/standards@957883b on 2026-07-07 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
-# Agent worktrees
+# Worktrees
 
-Rules for any AI agent (Kilo, Copilot, Cursor, Claude Code, etc.) working
-in this repo.
+Rules for working on a branch in isolation. Applies to humans and AI
+agents (Kilo, Copilot, Cursor, Claude Code, etc.) the same way.
 
-## Default: don't use a worktree
+## When you need a worktree
 
-Worktrees multiply the cost of working in a repo — disk, `node_modules`,
-setup-script time, merge complexity. Most agent tasks in this repo do
-not need one. Default to working on a single branch in the main checkout.
+Create one if the task changes anything that lands in a commit on any
+branch - code, config, tests, CI, schemas, docs.
 
-## Always ask before creating a worktree
+Skip it if the task only reads the repo (review, search, explain),
+writes only to GitHub issues/discussions via `gh`, or fetches external
+context with no repo impact.
 
-Before any `git worktree add` or tool-specific equivalent (Kilo Agent
-Manager "New Worktree", Copilot coding agent, Cursor background agent,
-etc.), the agent **MUST** ask the user for explicit confirmation. The
-question **MUST** include:
+If a read-only task pivots mid-flight (e.g. drafting an issue and the
+user asks for a PR), stop, create a worktree, and move the work in.
 
-- What the worktree is for (one sentence)
-- Proposed branch name (per [naming.md](naming.md))
-- Proposed worktree path (default: `.kilo/worktrees/<name>` if Kilo,
-  otherwise the repo's local convention)
-- Why a worktree is justified vs working on the current branch
+## The lifecycle
 
-If the user declines, work on the current branch.
+Five stages, in order. Pick up at whichever stage you're at; the doc
+covers each.
 
-## When a worktree is justified
+### 1. Spawn the worktree
 
-A worktree is appropriate only when **all** of the following hold:
+From the main checkout (assumed to be on `main`):
 
-1. The task must run **in parallel** with other work in the same repo
-   (another agent, a long-running dev server, a watch-mode test runner).
-2. The changes touch a **disjoint set of files** from the parallel work —
-   no shared hot file (schema, interface, lockfile, route table) that
-   both would rewrite.
-3. The work is **leaf-shaped** — a single package, module, or quirk
-   file — not a chain of dependent steps.
+```bash
+cd ~/git/n3ary/app
+git fetch origin
+git worktree add ~/git/n3ary/app-feat-favorites-station-231 \
+  -b feat/favorites-station-231 origin/main
+cd ~/git/n3ary/app-feat-favorites-station-231
+pnpm install
+```
 
-If any of these is uncertain, serialize the work on one branch.
+Notes:
 
-## Pre-flight check
+- **Path**: `~/git/n3ary/<repo>-<branch-with-slashes-as-dashes>` -
+  directory name mirrors the branch name with `/` replaced by `-`.
+  `feat/comments-standard` becomes `standards-feat-comments-standard`.
+  `feat/api/add-cache` becomes `app-feat-api-add-cache`.
+- **Branch name**: `<type>/<kebab-case-slug>` per
+  [naming.md](naming.md). Same rule as everywhere else in the org.
+- **`pnpm install`** is paid in full per worktree. Don't symlink
+  `node_modules` - pnpm's store model puts real symlinks inside
+  `node_modules`, and nesting another symlink there breaks hoisting
+  and confuses tools that walk up looking for the repo root. The cost
+  is real; the footgun is worse.
+- **Use the new branch** (`-b <branch>`) when the work is fresh.
+  Drop `-b` and pass an existing branch name when picking up a remote
+  branch someone else started.
 
-Before creating the worktree, name the files that two parallel agents
-would fight over. If you can't, parallelizing is safe. If you can,
-serialize until those files are stable.
+### 2. Do the work
 
-## When to abort and fall back to a branch
+Commit on the worktree branch. Push iteratively if you want CI to see
+intermediate states.
 
-Stop using the worktree and consolidate onto a single branch if any of
-these emerge:
+```bash
+git add -A
+git commit -m "feat(favorites): add station favorites"
+git push -u origin feat/favorites-station-231   # -u on first push only
+```
 
-- **Hidden coupling surfaces.** The worktree's task starts touching
-  files that belong to the parallel task's scope.
-- **Every rebase conflicts.** If `git rebase <base>` produces conflicts
-  on most commits, the parallel shape is wrong.
-- **`git stash` appears.** Stash is global across worktrees — if anyone
-  reaches for it, the isolation is broken. Abort and consolidate.
-- **Setup-script, port, or DB collisions** that can't be parameterized
-  from `WORKTREE_PATH` or branch name.
-- **Scope creep.** The agent is editing files outside its assigned leaf.
+`main` advances while you work. Sync your branch to it periodically
+so the eventual PR stays mergeable.
 
-Recovery: capture intent (`git diff` or stash in a single-worktree
-repo), `git worktree remove <path>`, re-apply on the main branch.
+```bash
+git fetch origin
+git rebase origin/main
+git push --force-with-lease
+```
 
-## Shared contracts first
+`--force-with-lease` (not `--force`) refuses to overwrite if the
+remote branch moved while you were rebasing. Use it every time.
 
-For multi-worktree efforts (e.g. the producer monorepo restructure
-tracked in [neary-gtfs#34](https://github.com/n3ary/gtfs/issues/34)),
-stabilize shared contracts — interfaces, schemas, route tables, file
-layout, test shape — on the base branch **before** creating parallel
-worktrees. The shared layer is what most often turns parallel work into
-conflict work.
+**The `package.json#version` race.** The `pr-validation` workflow
+bumps `package.json#version` on the PR branch as a bot commit. When
+another PR merges first, `main` advances past your base, and your
+rebase will conflict - but only on the version line. Keep the
+**higher** version, commit, push.
 
-## Cleanup
+```text
+<<<<<<< HEAD
+  "version": "1.5.21",
+=======
+  "version": "1.5.20",
+>>>>>>> origin/main
+```
 
-When a worktree's task is merged:
+becomes `"version": "1.5.21"`. CI re-runs. No rebase loop.
 
-- `git worktree remove <path>`
-- `git branch -d <branch>` only after the merge lands
+If the rebase conflicts on anything besides `package.json`, the
+parallel shape is wrong - see "When to abort."
 
-Never delete a worktree branch before its changes are integrated.
+### 3. Create the PR
+
+The worktree branch IS the PR branch. Same thing.
+
+```bash
+gh pr create --base main --head feat/favorites-station-231 \
+  --title "feat(favorites): add station favorites" \
+  --body "..."
+```
+
+After it opens:
+
+- CI runs on the PR branch. The version bump is one of the checks; it
+  commits to the PR branch directly, no agent action needed.
+- Push new commits to the same branch to update the PR. No new
+  branch, no new PR.
+- Review comments are addressed by committing to the same branch.
+- `gh pr checks` for CI status; `gh pr view` to read the thread.
+
+### 4. Merge the PR
+
+Once CI is green and review is resolved, merge via GitHub UI or CLI.
+The repo settings (see [repo-settings.md](repo-settings.md)) allow
+squash and rebase; **squash is the default**.
+
+```bash
+gh pr merge --squash --delete-branch
+```
+
+`main` advances to include your commits. The remote branch is
+auto-deleted by GitHub on merge.
+
+### 5. Clean up the worktree
+
+```bash
+git -C ~/git/n3ary/app worktree remove ~/git/n3ary/app-feat-favorites-station-231
+git -C ~/git/n3ary/app branch -d feat/favorites-station-231
+# Remote branch was already auto-deleted by GitHub on merge.
+```
+
+If the PR was closed without merging:
+
+```bash
+git -C ~/git/n3ary/app worktree remove ~/git/n3ary/app-feat-favorites-station-231 --force
+git -C ~/git/n3ary/app branch -D feat/favorites-station-231
+git push origin --delete feat/favorites-station-231   # if not already gone
+```
+
+Never delete a branch (local or remote) before its PR is merged or
+explicitly closed.
+
+## When to abort and restart on main
+
+Stop using the worktree and consolidate onto the main checkout if any
+of these emerges:
+
+- **Hidden coupling surfaces.** The task starts touching files outside
+  the leaf it was scoped to (shared schema, lockfile, route table).
+- **Every rebase conflicts** beyond `package.json#version`. The
+  parallel shape is wrong.
+- **`git stash` appears.** Stash is global across worktrees; if
+  anyone reaches for it, the isolation is broken.
+- **Scope creep.** The agent is editing files outside its assigned
+  leaf.
+
+Recovery:
+
+```bash
+# Capture the diff (intent) before discarding:
+git diff main > /tmp/intent.patch
+
+# Tear down:
+git -C ~/git/n3ary/app worktree remove ~/git/n3ary/app-feat-favorites-station-231 --force
+git -C ~/git/n3ary/app branch -D feat/favorites-station-231
+
+# Re-apply on the main checkout if you want to continue there:
+cd ~/git/n3ary/app
+git apply /tmp/intent.patch
+```
 
 ## How work lands in main
 
-`main` is protected. Every change goes through a PR. Direct commits and pushes to `main` are forbidden for humans and AI agents.
+`main` is protected. Every change goes through a PR. Direct commits
+and pushes to `main` are forbidden for humans and AI agents.
 
-Rules:
-
-- **Always open a PR.** Even small fixes; even when you're the only maintainer. The PR is the unit of review and the place where the auto-bump and validation pipeline run.
-- **Linear history.** Squash or rebase merge only. No merge commits. The `main` branch tip is always the most recent commit on a single line.
+- **Always open a PR.** Even small fixes; even when you're the only
+  maintainer.
+- **Linear history.** Squash or rebase merge only. No merge commits.
 - **No force-push on `main`.** No branch deletion of `main`.
-- **No direct push to `main`.** Even when in a hurry, even for trivial edits. The PR pipeline catches more than people think.
+- **No direct push to `main`.** The PR pipeline catches more than
+  people think.
 
-Branch protection is configured per the org-wide standard — see [repo-settings.md](repo-settings.md) for the exact table. Quick recap of the agent-relevant rules: linear history on, no force-push, no branch deletion, `enforce_admins: on` (no override path — if the rules are blocking you, fix the workflow, don't bypass it), 0 required reviews (solo-dev default; bump when collaborators arrive).
+Branch protection is configured per the org-wide standard - see
+[repo-settings.md](repo-settings.md) for the exact table.
 
 ### Exception: documented automation
 
-There is **no exception** for direct pushes to `main`. CI workflows don't push to `main` — they respond to events:
+There is **no exception** for direct pushes to `main`. CI workflows
+respond to events; they don't push to `main`:
 
-- **Dependabot** opens PRs (`open-pull-requests-limit: 10` in `.github/dependabot.yml`); humans/reviewers merge.
-- **Auto-bump version** runs on `pull_request` events and bumps the PR branch's `package.json#version`, not `main`. The bumped version lands in `main` when the PR merges.
-- **Deploy workflows** run on `push: branches: [main]` triggers — they're responses to PR merges via the GitHub API, not direct pushes.
+- **Dependabot** opens PRs; humans/reviewers merge.
+- **Auto-bump version** runs on `pull_request` events and bumps the
+  PR branch's `package.json#version`.
+- **Deploy workflows** run on `push: branches: [main]` triggers -
+  responses to PR merges via the GitHub API, not direct pushes.
 
-If a new automation needs to push to `main` for some reason, the rule is: don't add it. Use a PR. There is no exception clause because there is no exception to grant.
+If a new automation needs to push to `main`, the rule is: don't add
+it. Use a PR.
+
+## Cross-refs
+
+- [naming.md](naming.md) - branch naming reused for worktree
+  directory names.
+- [repo-settings.md](repo-settings.md) - branch protection, merge
+  strategy, why rebase is the sync mechanism.
+- [version-management.md](version-management.md) - `package.json#version`
+  bumping rules; explains the `git rebase` race in detail.
