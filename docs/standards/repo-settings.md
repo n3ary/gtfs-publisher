@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@f478439 on 2026-07-06 -->
+<!-- synced from n3ary/standards@61ded6b on 2026-07-07 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Repo settings
