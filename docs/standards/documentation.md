@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@f478439 on 2026-07-06 -->
+<!-- synced from n3ary/standards@61ded6b on 2026-07-07 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Documentation
@@ -33,13 +33,33 @@ Use Mermaid for every diagram, and GFM admonitions (`> [!NOTE]`, `> [!TIP]`,
 `[!CAUTION]` is reserved for **anti-patterns**. Full rules in
 [diagramming.md](diagramming.md).
 
+## Code in docs
+
+Quoted source code in a doc is a copy that rots. Aim for pointers, not
+pastes:
+
+- **> 6 lines of consecutive fenced source code** (`` ```ts ``,
+  `` ```js ``, `` ```svelte ``) in any doc → replace with a relative
+  link to the file with a line anchor (e.g.
+  `[implementation](src/lib/domain/buckets.ts#L1-L60)`). The doc stays
+  focused on *why*, not *what*.
+- **Smaller snippets** (<= 6 lines) are OK when the snippet itself IS
+  the spec — a GTFS record shape, a JSON contract, a regex pattern, a
+  CSS hook. Don't link to the source for things that aren't themselves
+  code.
+- **Mermaid is preferred over TS for diagrams.** Block diagrams of state
+  machines, flow, or data flow go in `` ```mermaid ``, not inlined TS.
+  Source code is not a diagram.
+
+Inline-comment policy lives in [comments.md](comments.md).
+
 ## What no doc should have
 
 - Restating what the code already says line-by-line.
 - Rationale for a fix already in git history ("we used to do X, now we do Y").
 - Timelines, dates that will go stale, OKRs.
 - Step-by-step tutorials for popular libraries (link to upstream docs).
-- Long quoted code blocks — link to the file with line anchors instead.
+- Long quoted code blocks (see [Code in docs](#code-in-docs) above).
 
 ## Length
 
