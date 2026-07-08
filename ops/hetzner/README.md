@@ -8,7 +8,7 @@ target-specific (currently Hetzner CX23 with systemd + podman).
 
 | File | Purpose | Installed at |
 |---|---|---|
-| `firewall.json` | Hetzner Cloud Firewall rules — 22+CF-only inbound, 80/443/53/icmp outbound. Created via `hcloud firewall create --name neary-gtfs-rt-01-edge-only --rules-file ops/hetzner/firewall.json` and applied with `hcloud firewall apply-to-resource --type server --server ubuntu-4gb-nbg1-1 neary-gtfs-rt-01-edge-only`. | Hetzner Cloud (network-layer; not on the VM) |
+| `firewall.sh` | Hetzner Cloud Firewall bootstrap. Fetches the current CF edge IP ranges (IPv4 + IPv6) from `https://api.cloudflare.com/client/v4/ips` at run time and applies the rules via `hcloud firewall create` / `replace-rules`. Re-run when CF adds an edge range (CF posts to their changelog). | Hetzner Cloud (network-layer; not on the VM) |
 | `dnat-80-to-8080.sh` | iptables DNAT: forwards port 80 → 8080 on the host, so the CF edge can connect to port 80 (its default) while the Fastify origin binds 8080. Idempotent. | `/usr/local/sbin/dnat-80-to-8080.sh` |
 | `dnat-80-to-8080.service` | systemd one-shot unit that runs the DNAT script at boot. Persistence so the rule survives reboots. | `/etc/systemd/system/dnat-80-to-8080.service` |
 
@@ -39,13 +39,20 @@ curl -sI https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions
 
 ## Hetzner Cloud Firewall
 
-Created via `hcloud firewall create --name neary-gtfs-rt-01-edge-only --rules-file ops/hetzner/firewall.json` and applied to the VM with `hcloud firewall apply-to-resource`. Inbound:
+Built and applied by `ops/hetzner/firewall.sh`. The script fetches
+the current Cloudflare edge IP ranges (IPv4 + IPv6) from
+`https://api.cloudflare.com/client/v4/ips` at run time and applies
+the resulting rules via `hcloud firewall create` / `replace-rules`.
+A static rules file would go stale silently when CF adds a new
+edge range — the script re-fetches on every invocation, so
+re-running it is enough to refresh.
+
+Inbound:
 - tcp/22 from anywhere (SSH; tighten to your IP when you have a
-  static one — replace `0.0.0.0/0, ::/0` with your CIDR and rerun
-  `hcloud firewall replace-rules --rules-file firewall.json <name>`).
-- tcp/80 + tcp/443 from the 15 CF edge IPv4 ranges + 7 IPv6
-  ranges (the CF orange-cloud proxy). Other source IPs are
-  blocked at the network layer.
+  static one — edit the `0.0.0.0/0, ::/0` in the script and rerun).
+- tcp/80 + tcp/443 from the live CF edge IP ranges (the
+  orange-cloud proxy). Other source IPs are blocked at the network
+  layer.
 - icmp from anywhere (ping).
 
 Outbound: 80/443/53/icmp to anywhere (ghcr.io pull, apt, DNS).
@@ -55,3 +62,11 @@ The firewall sits at the Hetzner edge — it's a *network-layer*
 control, in addition to whatever you put on the VM with iptables.
 The CF edge always reaches the VM via 178.104.6.65:80 (or :443 if
 you set SSL=full_strict on the zone instead of `full`).
+
+Usage:
+```bash
+# pre-reqs: hcloud CLI authenticated, jq installed
+bash ops/hetzner/firewall.sh                                    # uses default server name
+HCLOUD_SERVER_ID=147556356 bash ops/hetzner/firewall.sh         # or by id
+hcloud firewall describe neary-gtfs-rt-01-edge-only             # verify
+```
