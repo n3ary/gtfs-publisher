@@ -30,16 +30,29 @@ See [.env.example](.env.example) for a starter file.
 
 ## Quirks
 
-Each feed can have a quirk module under `src/quirks/<feed>.ts`. The
-Cluj quirk (recovering `direction_id` and `start_time` from the
-`<route>_<dir>_<service>_<run>_<HHMM>`-encoded `trip_id` per
-[n3ary/app#161](https://github.com/n3ary/app/issues/161)) is the
-canonical example. Adding a quirk:
+The proxy is intentionally feed-agnostic at the source level: no
+per-feed name appears in `src/`. Per-feed quirks live in
+`@n3ary/gtfs-adapter-<id>` packages and are wired in via a small
+config file under `feeds/<feedId>/config.json`:
 
-1. Create `src/quirks/<feed>.ts` exporting a `Quirk`.
-2. Add it to the `QUIRKS` map in `src/quirks/registry.ts`.
+```json
+{ "adapter": "@n3ary/gtfs-adapter-cluj-napoca" }
+```
 
-Feeds with no registered quirk are served as-is from upstream.
+At startup (and lazily on first poll tick) the loader reads
+`<configDir>/<feedId>/config.json` and dynamic-imports
+`<adapter>/rt`. The adapter's exports are inspected for a
+`Quirk`-shaped function (`clujQuirk` / `quirk` / `applyTo` /
+`default`) and the resulting function is wired into the
+fetch -> decode -> quirk -> re-encode pipeline.
+
+Adding a quirk for a new feed is exactly two files: the adapter
+package (separate repo, `@n3ary/gtfs-adapter-<id>`) and a
+`feeds/<id>/config.json` pointing at it. No code change to the
+proxy itself.
+
+Feeds with no `config.json` are served as-is from upstream
+(pass-through).
 
 ## Local dev
 
@@ -54,7 +67,7 @@ against a local copy of the registry).
 ## Test
 
 ```bash
-pnpm test      # vitest — server smoke + Cluj quirk unit
+pnpm test      # vitest -- server smoke + quirk loader unit
 pnpm check     # tsc --noEmit
 ```
 

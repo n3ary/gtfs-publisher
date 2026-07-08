@@ -11,7 +11,7 @@
  */
 import type { ResolvedFeed } from './feeds.js';
 import { fetchVehiclePositions, UpstreamFetchError } from './upstream.js';
-import { quirkFor } from './quirks/index.js';
+import { loadQuirk } from './quirks/index.js';
 import { putClean, reEncode } from './store.js';
 import type { Logger } from 'pino';
 
@@ -32,11 +32,12 @@ export function startPolling(
     return { stop: () => {} };
   }
 
-  const quirk = quirkFor(feed.id);
-
   const tick = async () => {
     try {
       const { feedMessage, fetchedAt } = await fetchVehiclePositions(url, upstreamTimeoutMs);
+      // Quirks are loaded lazily from per-feed config.json. A feed
+      // without a config passes through unchanged.
+      const quirk = await loadQuirk(feed.id);
       const clean = quirk ? quirk(feedMessage, feed) : feedMessage;
       const { bytes, entityCount } = reEncode(clean);
       putClean({ feedId: feed.id, fetchedAt, appliedAt: new Date(), bytes, entityCount });
