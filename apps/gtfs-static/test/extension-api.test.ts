@@ -69,18 +69,21 @@ describe('makeSqlite StaticExtension API', () => {
           ],
         },
       },
-      fillComputedColumns: (db, ctx) => {
+      fillComputedColumns: (ctx) => {
         hookCalls.push(ctx.feedId);
         expect(ctx.routes.length).toBeGreaterThan(0);
         expect(ctx.networks.length).toBeGreaterThan(0);
         expect(ctx.routeNetworks.length).toBeGreaterThan(0);
 
-        // Write a value to a column added via columnExtensions.
-        const upd = db.prepare('UPDATE networks SET network_extra = ? WHERE network_id = ?');
-        for (const n of ctx.networks) upd.run('#demo', n.network_id as string);
-
-        // Show that hooks CAN do `INSERT` too (caller owns the rows).
-        db.prepare('INSERT OR REPLACE INTO _demo (k, v) VALUES (?, ?)').run('hook', 'fired');
+        // Hook is pure data-in / data-out since the SQL-free refactor:
+        // return the column values to set (one per network). The pipeline
+        // owns the UPDATE statement + the transaction.
+        return {
+          networks: ctx.networks.map((n) => ({
+            network_id: n.network_id as string,
+            network_extra: '#demo',
+          })),
+        };
       },
     });
     expect(result).not.toBeNull();
@@ -96,15 +99,19 @@ describe('makeSqlite StaticExtension API', () => {
       expect(routeExtra).toBeDefined();
       expect(routeExtra?.route_extra).toBeNull(); // hook didn't touch routes
 
-      // Caller's ALTER TABLE on networks + hook's UPDATE both landed.
+      // Caller's ALTER TABLE on networks + hook's returned updates
+      // (applied by the pipeline as `UPDATE ... WHERE network_id = ?`)
+      // both landed. The new contract is data-in / data-out for the
+      // hook — see ./lib/extension.ts header for the rationale.
       const networkExtra = db.prepare("SELECT network_extra FROM networks WHERE network_id = 'N1'").get() as { network_extra: string | null };
       expect(networkExtra.network_extra).toBe('#demo');
 
-      // Pre-supplied tableExtension rows landed.
+      // Pre-supplied tableExtension rows landed — the hook no longer
+      // has DB access, so `INSERT OR REPLACE INTO _demo` from the old
+      // test is gone; only the rows declared in tableExtensions survive.
       const demoRows = db.prepare('SELECT k, v FROM _demo ORDER BY k').all() as Array<{ k: string; v: string }>;
       expect(demoRows).toEqual([
         { k: 'greeting', v: 'hello' },
-        { k: 'hook', v: 'fired' },     // overwritten by hook
         { k: 'mood', v: 'cranky' },
       ]);
     } finally {

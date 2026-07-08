@@ -32,9 +32,9 @@ import { pipeline } from 'node:stream/promises';
 import { createHash } from 'node:crypto';
 
 import type { SqliteFile } from './lib/types.js';
-import type { StaticExtension, ColumnExtension, TableExtension } from './lib/extension.js';
+import type { StaticExtension, ColumnExtension, TableExtension, ComputedUpdates } from './lib/extension.js';
 import { OUTPUTS } from './fetch-gtfs.js';
-import { SCHEMA, REQUIRED_TABLES, type ColumnSpec } from '@n3ary/gtfs-spec/sql';
+import { SCHEMA, REQUIRED_TABLES, type ColumnSpec, type SchemaSpec } from '@n3ary/gtfs-spec/sql';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -228,6 +228,105 @@ function runInTransaction(db: DB, body: () => void): void {
   }
 }
 
+// Resolve a table's PRIMARY KEY column names from its spec.
+// SPEC-CONTRACT: every table SCHEMA declares a primary key. Two
+// shapes appear across the 11 spec tables:
+//   * inline on the column type, e.g. `route_id TEXT PRIMARY KEY` (most
+//     common)
+//   * separate CHECK-like annotation, e.g. some test schemas
+//   * composite from `tableConstraints`, e.g. stop_times's
+//     `PRIMARY KEY (trip_id, stop_sequence)`
+// Parsing all three is cheap; codegen would be over-engineered for
+// what is just a sentence-shaped string match.
+function getPkColumns(spec: SchemaSpec): string[] {
+  // 1. Inline single-column PK — `COL TYPE PRIMARY KEY [...]`. The
+  //    `PRIMARY KEY` token can be the last word of the type (most
+  //    common) or end of a separate check annotation (rare).
+  for (const col of spec.columns) {
+    const [name, type, check] = col;
+    // If the check slot exists AND has PRIMARY KEY, use it (handles
+    // test schemas that model it as a separate clause).
+    if (check && /\bPRIMARY KEY\b/i.test(check)) return [name];
+    // Otherwise scan the type string itself — every spec table
+    // declares its single-column PK this way.
+    if (/\bPRIMARY KEY\b/i.test(type)) return [name];
+  }
+  // 2. Composite PK from tableConstraints (`PRIMARY KEY (col1, col2, ...)`)
+  for (const c of spec.tableConstraints ?? []) {
+    const m = c.match(/^PRIMARY KEY\s*\(([^)]+)\)/i);
+    if (m && m[1]) {
+      return m[1].split(',').map((s: string) => s.trim());
+    }
+  }
+  return [];
+}
+
+/**
+ * Apply the adapter's `fillComputedColumns` return value back to the DB.
+ * The pipeline constructs UPDATE statements using the spec's PK; the
+ * adapter stays free of any SQL knowledge.
+ *
+ * One UPDATE per row, batched into a single transaction. Each row in
+ * the adapter's return must include the table's PK column(s) plus any
+ * columns to set. Rows missing the PK throw loud — a malformed
+ * ComputedUpdates is better as a build failure than a silent skip.
+ */
+function applyComputedUpdates(db: DB, computed: ComputedUpdates, tag: string): void {
+  const tables = Object.entries(computed);
+  if (tables.length === 0) return;
+  let totalRows = 0;
+  runInTransaction(db, () => {
+    for (const [tableName, rows] of tables) {
+      const spec = SCHEMA[tableName];
+      if (!spec) {
+        throw new Error(
+          `${tag}: fillComputedColumns returned updates for "${tableName}" but that table is not in the spec SCHEMA. ` +
+          `Pipeline only updates spec tables; table extensions (tableExtensions.rows) are pre-supplied and can't be filled by this hook.`,
+        );
+      }
+      const pkCols = getPkColumns(spec);
+      if (pkCols.length === 0) {
+        throw new Error(
+          `${tag}: cannot UPDATE "${tableName}" — schema has no PRIMARY KEY. ` +
+          `Either supply rows via tableExtensions or rely on columnExtensions + CSV-derived data.`,
+        );
+      }
+      if (rows.length === 0) continue;
+      // First row defines the column set; subsequent rows must include
+      // the same keys (we don't enforce it at runtime — columns absent
+      // from a row would just become NULL, which is arguably correct
+      // for OPTIONAL columns, but we do require every row to carry
+      // the PK columns to drive the WHERE clause).
+      const sampleKeys = Object.keys(rows[0]!);
+      const setCols = sampleKeys.filter((c) => !pkCols.includes(c));
+      if (setCols.length === 0) continue;
+      const setClause = setCols.map((c) => `${c} = ?`).join(', ');
+      const whereClause = pkCols.map((c) => `${c} = ?`).join(' AND ');
+      const stmt = db.prepare(`UPDATE ${tableName} SET ${setClause} WHERE ${whereClause}`);
+      for (const row of rows) {
+        for (const pk of pkCols) {
+          if (!(pk in row)) {
+            throw new Error(
+              `${tag}: computed update for "${tableName}" missing PK column "${pk}". ` +
+              `Each row must include the PK column(s) so the pipeline can construct the WHERE clause.`,
+            );
+          }
+        }
+        const values: Array<string | number | bigint | null | Uint8Array> = [];
+        for (const c of setCols) values.push((row[c] as string | number | bigint | null | Uint8Array) ?? null);
+        for (const c of pkCols) values.push((row[c] as string | number | bigint | null | Uint8Array) ?? null);
+        // node:sqlite stmt.run(...values) takes SQLInputValue (string | number | bigint | null | ArrayBufferView).
+        // The cast widens the array-element union to satisfy TS's rest-spread inference.
+        stmt.run(...(values as Array<string | number | bigint | null | Uint8Array>));
+      }
+      totalRows += rows.length;
+    }
+  });
+  if (totalRows > 0) {
+    console.log(`${tag}: applied ${totalRows} computed-column update(s) across ${tables.length} table(s)`);
+  }
+}
+
 const INSERT_BATCH_SIZE = 5000;
 // Chatter cap so a national feed doesn't spam the log. Emit a
 // progress line every ~250k rows plus a final total.
@@ -349,15 +448,19 @@ export async function makeSqlite(
       );
     }
 
-    // Caller-supplied hook (one-time, after spec tables load + before
-    // table extension rows). Skipped entirely when no extension given.
+    // Caller-supplied pure hook (one-time, after spec tables load +
+    // before table extension rows). The hook is data-in / data-out:
+    // it reads the buffered routes / networks / route_networks and
+    // returns a per-table ComputedUpdates object. The pipeline then
+    // owns all the SQL.
     if (extensions?.fillComputedColumns) {
-      await extensions.fillComputedColumns(db, {
+      const computed = await extensions.fillComputedColumns({
         feedId,
         routes: (routeRows ?? []) as ReadonlyArray<Record<string, unknown>>,
         networks: (networkRows ?? []) as ReadonlyArray<Record<string, unknown>>,
         routeNetworks: (routeNetworkRows ?? []) as ReadonlyArray<Record<string, unknown>>,
       });
+      applyComputedUpdates(db, computed, `[make-sqlite] ${feedId}`);
     }
     insertTableExtensionRows(db, extensions, `[make-sqlite] ${feedId}`);
 
