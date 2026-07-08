@@ -88,7 +88,11 @@ function defaultSlug(name: string): string {
  * is present, overlay only the fields it explicitly sets — single source
  * of truth for "what fields exist" (the base).
  */
-function projectFeed(iso: string, raw: RawTransitousSource, override: Override | undefined, mdbRealtime: Realtime | null): { skip?: string; feed?: Feed } {
+function projectFeed(iso: string, raw: RawTransitousSource, override: Override | undefined, mdbRealtime: Realtime | null): Promise<{ skip?: string; feed?: Feed }> {
+  return projectFeedImpl(iso, raw, override, mdbRealtime);
+}
+
+async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: Override | undefined, mdbRealtime: Realtime | null): Promise<{ skip?: string; feed?: Feed }> {
   if (!raw.name) return { skip: 'missing name' };
   if (!['http', 'transitland-atlas', 'mobility-database'].includes(raw.type ?? '')) {
     return { skip: `unsupported source type: ${raw.type}` };
@@ -159,6 +163,44 @@ function projectFeed(iso: string, raw: RawTransitousSource, override: Override |
     }
   }
 
+  // Realtime URL resolution -- MERGE, not replace:
+  //   - mdbRealtime is the base. It carries the canonical
+  //     `vehicle_positions` / `trip_updates` / `service_alerts`
+  //     URLs auto-discovered from the MDB catalog (works for
+  //     transitous + mobility-database + adapter feeds whose
+  //     Transitous entry has RT siblings with mdb-id).
+  //   - c.realtime is per-feed override. It can override any
+  //     individual field (e.g. operator redirects the canonical
+  //     URL to a different host) and supplies the
+  //     `extra_vehicle_positions` array.
+  //   - For adapter-type feeds, the adapter's
+  //     `/rt.extraVehiclePositions()` is the per-feed canonical
+  //     source for the extras array; per-feed config still
+  //     wins if it sets the field explicitly.
+  //
+  // We MERGE the layers (c.realtime fields override mdbRealtime
+  // fields, not replace the whole object) so dropping the
+  // canonical URLs from the per-feed config means mdbRealtime
+  // supplies them.
+  let realtime: Realtime = { ...(mdbRealtime ?? {}) };
+  if (c.realtime) {
+    realtime = { ...realtime, ...c.realtime };
+  }
+  if (source.type === 'adapter' && source.publisher) {
+    const adapterExtras = await loadAdapterExtras(source.publisher);
+    if (adapterExtras !== null) {
+      const cfgExtras = realtime.extra_vehicle_positions;
+      realtime = {
+        ...realtime,
+        // Per-feed config's value (if explicitly set) wins; the
+        // adapter's value is the default. `[]` is a valid
+        // operator-set value meaning "no extras", and it wins
+        // over the adapter's contribution too.
+        extra_vehicle_positions: cfgExtras !== undefined ? cfgExtras : adapterExtras,
+      };
+    }
+  }
+
   return {
     feed: {
       ...base,
@@ -169,7 +211,7 @@ function projectFeed(iso: string, raw: RawTransitousSource, override: Override |
       timezone: c.timezone ?? null,
       languages: c.languages ?? [],
       source,
-      realtime: c.realtime ?? mdbRealtime,
+      realtime,
       license: {
         spdx_identifier: c.license?.spdx_identifier ?? base.license.spdx_identifier,
         attribution_text: c.license?.attribution_text ?? base.license.attribution_text,
@@ -178,6 +220,35 @@ function projectFeed(iso: string, raw: RawTransitousSource, override: Override |
       _smoke: c.smoke ?? null,
     },
   };
+}
+
+/**
+ * Try to load extra vehicle_positions URLs from the adapter's
+ * `/rt` subpath. Returns null if the adapter doesn't export an
+ * `extraVehiclePositions()` function, or if the dynamic import
+ * fails. Cached per publisher. Safe to call against cluj 0.3.5
+ * (no export) — the function is missing, this returns null, the
+ * per-feed config value is used as the source of truth.
+ */
+const adapterExtrasCache = new Map<string, string[] | null>();
+async function loadAdapterExtras(publisher: string): Promise<string[] | null> {
+  const hit = adapterExtrasCache.get(publisher);
+  if (hit !== undefined) return hit;
+
+  try {
+    const mod: any = await import(`${publisher}/rt`);
+    if (typeof mod.extraVehiclePositions !== 'function') {
+      adapterExtrasCache.set(publisher, null);
+      return null;
+    }
+    const extras = mod.extraVehiclePositions() as string[];
+    adapterExtrasCache.set(publisher, extras);
+    return extras;
+  } catch (err) {
+    console.warn(`[resolve-feeds] ${publisher}/rt: extraVehiclePositions() lookup failed -- ${(err as Error).message}`);
+    adapterExtrasCache.set(publisher, null);
+    return null;
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -211,7 +282,7 @@ export async function resolveFeeds(): Promise<Feed[]> {
       if (raw.spec === 'gtfs-rt') continue;
       const override = overrides.get(raw.name);
       const mdbRealtime = await resolveRealtimeForName(sources as Parameters<typeof resolveRealtimeForName>[0], raw.name);
-      const projected = projectFeed(iso, raw, override, mdbRealtime);
+      const projected = await projectFeed(iso, raw, override, mdbRealtime);
       if (projected.skip) {
         console.warn(`[resolve-feeds] ${iso}/${raw.name}: skipped (${projected.skip})`);
         continue;
