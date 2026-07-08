@@ -5,9 +5,7 @@
     "type": "adapter",
     "publisher": "@n3ary/gtfs-adapter-cluj-napoca"
   },
-  "secrets": [
-    "TRANZY_API_KEY"
-  ],
+  "secrets": ["TRANZY_API_KEY"],
   "license": {
     "attribution_text": "© Compania de Transport Public Cluj-Napoca",
     "attribution_url": "https://www.ctpcluj.ro/"
@@ -24,5 +22,9 @@
     ],
     "night_window": { "from": "22:30", "to": "05:30" },
     "dwell_sec": 20
+  },
+  "realtime": {
+    "vehicle_positions": "https://cluj-rt-feed.gtfs.ro/vehiclePositions",
+    "extra_vehicle_positions": []
   }
 }

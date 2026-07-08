@@ -1,20 +1,30 @@
 /**
- * store.ts — in-memory cache of the latest clean (post-quirk)
- * FeedMessage per feed, plus the re-encoded protobuf bytes ready
- * to serve.
+ * store.ts — in-memory cache of clean (post-Quirk, schema-validated)
+ * FeedMessage bytes, ready to serve.
  *
- * The HTTP server reads from here, so per-request latency is just a
- * Map lookup + a buffer copy. The CF edge in front (Step 10) handles
- * the per-user polling fan-out; the Hetzner adapter only needs to
- * serve the few requests that miss the cache.
+ * Two parallel views:
+ *   - putClean / getClean(feedId): the per-feed PRIMARY snapshot,
+ *     served by /rt/<feed>/vehicle_positions. This is what clients
+ *     see today.
+ *   - putSource: every URL's snapshot (primary + extras), keyed by
+ *     (feedId, url). Used internally by the reconciler when extras
+ *     land. Extras are stored but not yet served.
  *
- * For HA: the store is per-process. A multi-instance deployment would
- * need a shared cache (R2, Redis, etc.) — not in scope for Step 7.
+ * The HTTP server reads from putClean, so per-request latency is a
+ * single Map lookup + a buffer copy. The CF edge in front (Step 10)
+ * handles the per-user polling fan-out; the Hetzner pod only serves
+ * the few requests that miss the cache.
+ *
+ * For HA: the store is per-process. A multi-instance deployment
+ * would need a shared cache (R2, Redis, etc.) -- not in scope for
+ * Step 7.
  */
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
 const { FeedMessage } = GtfsRealtimeBindings.transit_realtime;
 type FeedMessageType = GtfsRealtimeBindings.transit_realtime.FeedMessage;
+
+export type SnapshotRole = 'primary' | 'extra';
 
 export interface CleanSnapshot {
   feedId: string;
@@ -25,18 +35,40 @@ export interface CleanSnapshot {
   entityCount: number;
 }
 
-const STORE = new Map<string, CleanSnapshot>();
+export interface SourceSnapshot extends CleanSnapshot {
+  url: string;
+  role: SnapshotRole;
+}
 
+const PRIMARY = new Map<string, CleanSnapshot>();
+const BY_SOURCE = new Map<string, SourceSnapshot>();
+
+/** Per-feed primary snapshot (what /rt/<feed>/vehicle_positions serves). */
 export function putClean(snap: CleanSnapshot): void {
-  STORE.set(snap.feedId, snap);
+  PRIMARY.set(snap.feedId, snap);
+}
+
+/** Per-source snapshot (every URL we polled, primary + extras). */
+export function putSource(snap: SourceSnapshot): void {
+  BY_SOURCE.set(`${snap.feedId}::${snap.url}`, snap);
 }
 
 export function getClean(feedId: string): CleanSnapshot | undefined {
-  return STORE.get(feedId);
+  return PRIMARY.get(feedId);
+}
+
+export function getSource(feedId: string, url: string): SourceSnapshot | undefined {
+  return BY_SOURCE.get(`${feedId}::${url}`);
+}
+
+/** Per-source snapshots for a feed, ordered primary first then extras
+ *  in declaration order. */
+export function listSourcesForFeed(feedId: string): SourceSnapshot[] {
+  return [...BY_SOURCE.values()].filter((s) => s.feedId === feedId);
 }
 
 export function listClean(): CleanSnapshot[] {
-  return Array.from(STORE.values());
+  return [...PRIMARY.values()];
 }
 
 export function reEncode(message: FeedMessageType): {

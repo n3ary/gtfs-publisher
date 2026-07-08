@@ -16,5 +16,6 @@
 export { AgencySchema, type Agency } from './agency.js';
 export { BboxSchema, CenterSchema, ValiditySchema, type Bbox, type Center, type Validity } from './geometry.js';
 export { RealtimeSchema, type Realtime } from './realtime.js';
+export { FeedMessageSchema, type FeedMessageT, type VehiclePositionT, type FeedEntityT } from './rt.js';
 export { LicenseSchema, type License } from './license.js';
 export { FeedSchema, FeedsRegistrySchema, type Feed, type FeedsRegistry } from './feeds.js';

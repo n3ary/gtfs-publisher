@@ -12,8 +12,8 @@
  */
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import { getClean, listClean } from './store.js';
-import { quirkFeedIds } from './quirks/index.js';
+import { getClean, listSourcesForFeed, listClean } from './store.js';
+import { adaptersWithQuirk } from './adapter.js';
 
 export interface ServerHandle {
   app: FastifyInstance;
@@ -37,12 +37,17 @@ export function buildServer(log: FastifyBaseLogger): ServerHandle {
 
   app.get('/healthz', async () => ({
     status: 'ok',
-    quirks: quirkFeedIds(),
+    adapters: adaptersWithQuirk(),
     feeds: listClean().map((s) => ({
       feedId: s.feedId,
       fetchedAt: s.fetchedAt.toISOString(),
       appliedAt: s.appliedAt.toISOString(),
       entityCount: s.entityCount,
+      sources: listSourcesForFeed(s.feedId).map((u) => ({
+        url: u.url,
+        role: u.role,
+        entityCount: u.entityCount,
+      })),
     })),
   }));
 
