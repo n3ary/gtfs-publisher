@@ -105,7 +105,11 @@
           "type": ["object", "null"],
           "additionalProperties": false,
           "properties": {
-            "vehicle_positions": { "type": "string", "format": "uri" },
+            "vehicle_positions":      { "type": "string", "format": "uri" },
+            "extra_vehicle_positions": {
+              "type": "array",
+              "items": { "type": "string", "format": "uri" }
+            },
             "trip_updates":      { "type": "string", "format": "uri" },
             "service_alerts":    { "type": "string", "format": "uri" }
           }

@@ -34,10 +34,10 @@ describe('server', () => {
   it('GET /healthz returns 200 + status ok', async () => {
     const res = await fetch(`${baseUrl}/healthz`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; feeds: unknown[]; quirks: string[] };
+    const body = (await res.json()) as { status: string; feeds: unknown[]; adapters: string[] };
     expect(body.status).toBe('ok');
     expect(Array.isArray(body.feeds)).toBe(true);
-    expect(Array.isArray(body.quirks)).toBe(true);
+    expect(Array.isArray(body.adapters)).toBe(true);
   });
 
   it('GET /feeds returns the (empty) store', async () => {

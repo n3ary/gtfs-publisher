@@ -28,8 +28,14 @@ import { resolveRealtimeForName } from './lib/mdb-rt.js';
 import type { Feed, License, Realtime } from './lib/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
+// Repo root — where per-feed author configs live at <ROOT>/feeds/<id>/config.json.
+const ROOT = join(__dirname, '..', '..', '..');
 const FEEDS_DIR = join(ROOT, 'feeds');
+// The static-pipeline-private countries roster stays with the static
+// pipeline. It's a build-time input (which Transitous source names
+// to publish), not a per-feed authored artifact, and the rt app
+// doesn't read it.
+const COUNTRIES_JSON = join(__dirname, '..', 'countries.json');
 
 const TRANSITOUS_RAW = 'https://raw.githubusercontent.com/public-transport/transitous/main/feeds';
 const TRANSITOUS_GTFS_BASE = 'https://api.transitous.org/gtfs';
@@ -177,7 +183,7 @@ function projectFeed(iso: string, raw: RawTransitousSource, override: Override |
 // ───────────────────────────────────────────────────────────────────────────
 
 export async function resolveFeeds(): Promise<Feed[]> {
-  const config = JSON.parse(readFileSync(join(ROOT, 'countries.json'), 'utf8')) as {
+  const config = JSON.parse(readFileSync(COUNTRIES_JSON, 'utf8')) as {
     countries?: string[];
     include?: string[];
   };

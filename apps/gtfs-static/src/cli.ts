@@ -47,7 +47,11 @@ import type { StaticExtension } from './lib/extension.js';
 import type { Feed, FeedEntry, FreshEntry, GtfsFile, ZipArtifact } from './lib/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
+// Up three levels: src/ -> apps/gtfs-static -> apps/ -> repo root.
+// The per-feed author configs now live at <repo-root>/feeds/<id>/config.json
+// so all ROOT-relative lookups (`countries.json`, `feeds/<id>/config.json`)
+// point at the repo root.
+const ROOT = join(__dirname, '..', '..', '..');
 
 /**
  * Resolve the adapter package name for a feed. Driven entirely by
