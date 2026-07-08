@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "0.2.43-m1",
+  "version": "0.2.44-m1",
   "private": true,
   "type": "module",
   "description": "GTFS publisher: static + RT packages for the neary PWA.",

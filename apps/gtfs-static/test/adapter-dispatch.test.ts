@@ -128,3 +128,49 @@ describe('adapter dispatch (feed-agnostic)', () => {
     expect(stripped).not.toMatch(feedIdSwitch);
   });
 });
+
+/**
+ * Realtime-URL resolution tests for adapter-type feeds. The
+ * orchestrator's projectFeed flow (resolve-feeds.ts) calls
+ * `${publisher}/static.realtimeUrls()` for every adapter feed and
+ * copies the result into `feeds.json.realtime.*`. The per-feed
+ * authored config can override for `remote` feeds but for adapter
+ * feeds the adapter is authoritative.
+ *
+ * These tests assert the data flow by inspecting the code on disk
+ * (the same way the previous test does for "no hardcoded static
+ * imports"). End-to-end coverage of the dynamic import is exercised
+ * by the live nightly build.
+ */
+describe('realtime URLs from adapter', () => {
+  it('resolve-feeds calls extraVehiclePositions() from /rt for adapter-type feeds', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, '..', 'src', 'resolve-feeds.ts'), 'utf8');
+
+    // The dynamic-import path: orchestrator reads
+    // `${publisher}/rt.extraVehiclePositions()` for adapter-type
+    // feeds and merges the result into the projected feed's
+    // realtime.extra_vehicle_positions field.
+    expect(src).toMatch(/loadAdapterExtras\(/);
+    expect(src).toMatch(/extraVehiclePositions\s*\(\)/);
+    expect(src).toMatch(/\$\{publisher\}\/rt/);
+  });
+
+  it('per-feed config extras win over the adapter\'s value when explicitly set', async () => {
+    // Verified by code review: when c.realtime.extra_vehicle_positions
+    // is defined, the orchestrator uses it; otherwise it uses the
+    // adapter's extraVehiclePositions() return value. The wiring
+    // test above asserts the function is called; this test pins
+    // the merge logic.
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, '..', 'src', 'resolve-feeds.ts'), 'utf8');
+
+    expect(src).toMatch(/cfgExtras !== undefined \? cfgExtras : adapterExtras/);
+  });
+});
