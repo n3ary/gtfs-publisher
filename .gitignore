@@ -1,6 +1,8 @@
 node_modules/
-packages/*/outputs/
-packages/*/dist/
+apps/*/outputs/
+apps/*/dist/
+libs/*/outputs/
+libs/*/dist/
 *.log
 .env
 .tsbuildinfo

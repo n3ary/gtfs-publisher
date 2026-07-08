@@ -9,7 +9,7 @@ artifacts this repo publishes. The README is an index that points here.
 |---|---|---|---|
 | Raw GTFS Schedule zip | `.gtfs.zip` — public GTFS Schedule spec, no extensions | External GTFS tooling (onebusaway, transit planners, validators) | `<id>-<hash12>.gtfs.zip` on R2 |
 | SQLite blob | `.sqlite3.gz` — public spec + per-feed extensions (e.g. cluj adapter's `networks.network_color`, `_neary_config` table) | [n3ary/app](https://github.com/n3ary/app) PWA in OPFS | `<id>-<hash12>.sqlite3.gz` on R2 |
-| GTFS-RT protobuf | HTTP-served GTFS-Realtime protobuf (`vehicle_positions`, `trip_updates`, `service_alerts`) | [n3ary/app](https://github.com/n3ary/app) live reconciler | `packages/gtfs-rt` Fastify server, deployed standalone |
+| GTFS-RT protobuf | HTTP-served GTFS-Realtime protobuf (`vehicle_positions`, `trip_updates`, `service_alerts`) | [n3ary/app](https://github.com/n3ary/app) live reconciler | `apps/gtfs-rt` Fastify server, deployed standalone |
 
 **Extensions stay in the sqlite blob.** Per-feed adapter knowledge (the
 cluj adapter's route-color fixup, the `_neary_config` key/value table,
@@ -31,7 +31,7 @@ flowchart LR
     H["derive-bbox<br/>+ make-sqlite<br/>+ StaticExtension"]
     I["feeds.json<br/>+ &lt;id&gt;.sqlite3.gz<br/>+ &lt;id&gt;.gtfs.zip<br/>→ R2 (gtfs.n3ary.com)"]
     J["n3ary/app PWA<br/>(downloads sqlite3.gz into OPFS)"]
-    K["packages/gtfs-rt Fastify<br/>(proxies RT feeds)"]
+    K["apps/gtfs-rt Fastify<br/>(proxies RT feeds)"]
     M["MobilityData catalog<br/>(api.github.com + raw.githubusercontent.com)<br/>resolves Transitous mdb-id →<br/>direct RT URL → feeds.json realtime.*"]
 
     A --> B
@@ -59,7 +59,7 @@ flowchart LR
 5. **`derive-bbox` + `make-sqlite` + `StaticExtension`**: computes the feed's bounding box (consumed by the app to suggest feeds that cover the user's location); converts each CSV to a SQLite table; calls the adapter's `staticExtension(feedConfig)` factory for any per-feed extras (columns, tables, computed-value hooks).
 6. **`feeds.json` + `*.sqlite3.gz` + `*.gtfs.zip` → R2**: published to the `neary-gtfs` bucket via the S3-compatible R2 API. All three filenames are content-addressed by sha256 (`<id>-<hash12>.<ext>`) so the cache TTL never serves stale bytes at a known URL. See [ops/secrets-and-deploy.md](../ops/secrets-and-deploy.md) for credentials.
 7. **MobilityData catalog → realtime URLs**: when a Transitous source has an RT sibling with an `mdb-id`, `mdb-rt.js` resolves it to a direct RT URL via the MobilityData catalog on GitHub (`api.github.com` git tree + `raw.githubusercontent.com/...mobility-database-catalogs/`). The resolved URLs land in `feeds.json` `realtime.*` so the consumer knows where to fetch `vehicle_positions`.
-8. **`packages/gtfs-rt` Fastify server**: a separate process that proxies the `realtime.*` URLs through a single Fastify HTTP endpoint per feed, exposing them as standard GTFS-RT protobuf over HTTP. The PWA hits this server instead of the upstream providers directly (one stable DNS, one auth model, one set of rate-limit knobs).
+8. **`apps/gtfs-rt` Fastify server**: a separate process that proxies the `realtime.*` URLs through a single Fastify HTTP endpoint per feed, exposing them as standard GTFS-RT protobuf over HTTP. The PWA hits this server instead of the upstream providers directly (one stable DNS, one auth model, one set of rate-limit knobs).
 9. **`n3ary/app` PWA**: the consumer side. At launch it fetches `feeds.json`, picks a feed (or auto-picks by GPS), downloads `*.sqlite3.gz`, stores in OPFS, then starts polling the `gtfs-rt` proxy for live `vehicle_positions`.
 
 ## Source flavors
@@ -82,13 +82,13 @@ https://gtfs.n3ary.com/<id>-<hash12>.sqlite3.gz   ← one per feed listed in fee
 https://gtfs.n3ary.com/<id>-<hash12>.gtfs.zip    ← one per feed (public GTFS Schedule spec only — no extensions)
 ```
 
-Live `vehicle_positions` / `trip_updates` / `service_alerts` are served by the `packages/gtfs-rt` Fastify server, deployed independently from the static pipeline.
+Live `vehicle_positions` / `trip_updates` / `service_alerts` are served by the `apps/gtfs-rt` Fastify server, deployed independently from the static pipeline.
 
-`feeds.json` is Ajv-validated against [`packages/gtfs-static/src/schema/feeds.schema.json`](../../packages/gtfs-static/src/schema/feeds.schema.json) (draft-2020) on every build, so a malformed entry fails before publish.
+`feeds.json` is Ajv-validated against [`apps/gtfs-static/src/schema/feeds.schema.json`](../../apps/gtfs-static/src/schema/feeds.schema.json) (draft-2020) on every build, so a malformed entry fails before publish.
 
 ## Cross-references
 
-- Pipeline stage implementation — [`packages/gtfs-static/src/README.md`](../../packages/gtfs-static/src/README.md)
+- Pipeline stage implementation — [`apps/gtfs-static/src/README.md`](../../apps/gtfs-static/src/README.md)
 - Repository layout and conventions — [`../README.md`](../README.md) (the slimmed landing page)
 - Secrets + R2 setup — [`../ops/secrets-and-deploy.md`](../ops/secrets-and-deploy.md)
 

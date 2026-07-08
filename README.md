@@ -40,9 +40,10 @@ consumer needs:
 
 ```
 .
-├── packages/
+├── apps/
 │   ├── gtfs-static/        static pipeline: resolve feeds → acquire zips → make-sqlite → R2
-│   ├── gtfs-rt/            Fastify GTFS-RT proxy: serves protobuf over HTTP
+│   └── gtfs-rt/            Fastify GTFS-RT proxy: serves protobuf over HTTP
+├── libs/
 │   └── spec/               shared @n3ary/gtfs-spec (types, SQL DDL, ZIP readers)
 ├── feeds/<id>/config.json per-feed overrides (source.publisher, secrets[], timing, smoke)
 ├── countries.json          single source of truth for which feeds to publish
@@ -51,6 +52,8 @@ consumer needs:
 │   └── ops/                secrets-and-deploy.md, publishing.md
 └── .github/workflows/      daily.yml (publish), pr-validation.yml
 ```
+
+Apps vs. libs: `apps/*` are deployable (cron pipeline, long-running HTTP service, eventually the CF edge worker). `libs/*` are imported as workspace dependencies by other packages — `libs/spec` is the only one right now and it's the only one published (to GH Packages as `@n3ary/gtfs-spec`).
 
 ## Adding a new feed
 
@@ -63,7 +66,7 @@ consumer needs:
 5. Add the Transitous source name (if any) to `countries.json`'s `include[]`
    so the catalog lookup finds it.
 
-No code change in `packages/gtfs-static/src/cli.ts` — the orchestrator is
+No code change in `apps/gtfs-static/src/cli.ts` — the orchestrator is
 feed-agnostic and discovers adapters by `source.publisher` at runtime.
 
 ## Quick start

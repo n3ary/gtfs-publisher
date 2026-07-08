@@ -93,7 +93,7 @@ Cross-repo coordination goes in the issue description: list the affected repos, 
 - **Issue that's secretly a plan**: the "issue" has multiple sections, todos, architecture diagrams, decisions pending. That's a plan — promote to a branch and execute.
 - **Plan that's secretly an issue**: the "plan" is just an idea with no active work. Demote to an issue.
 - **"We should..." in a closed PR or a comment**: open an issue. If you didn't, the idea disappears.
-- **Per-feed quirks as docs**: per-feed facts belong in code (`packages/gtfs-rt/src/quirks/<feed>.ts`), not in this repo's docs. Specs and concepts describe the architecture; quirks describe the data.
+- **Per-feed quirks as docs**: per-feed facts belong in code (`apps/gtfs-rt/src/quirks/<feed>.ts`), not in this repo's docs. Specs and concepts describe the architecture; quirks describe the data.
 
 ## Examples
 

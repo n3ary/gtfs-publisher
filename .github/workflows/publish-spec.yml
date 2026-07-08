@@ -1,8 +1,8 @@
 name: Publish @n3ary/gtfs-spec
 
-# Publishes packages/spec to GitHub Packages (https://npm.pkg.github.com/).
+# Publishes libs/spec to GitHub Packages (https://npm.pkg.github.com/).
 #
-# Trigger: a PR is merged that touches packages/spec/package.json.
+# Trigger: a PR is merged that touches libs/spec/package.json.
 # The version bump happens inside the PR (via version-bump auto-bump
 # in pr-validation.yml, or manually), so by the time this workflow
 # fires the new version is already on main -- no separate version-bump,
@@ -10,7 +10,7 @@ name: Publish @n3ary/gtfs-spec
 # out main, calls package/publish, and lets it do everything else.
 #
 # The package is PUBLIC on GitHub Packages (set via `access: public`
-# in packages/spec/package.json#publishConfig at first publish). To
+# in libs/spec/package.json#publishConfig at first publish). To
 # make it private after the initial publish, edit the `access` field
 # in publishConfig and re-run.
 #
@@ -25,7 +25,7 @@ on:
   pull_request:
     types: [closed]
     paths:
-      - 'packages/spec/package.json'
+      - 'libs/spec/package.json'
 
 # pull_request_target runs in the base branch's context so secrets
 # (NPM_TOKEN, etc.) are available even if the PR is from a fork.
@@ -50,8 +50,8 @@ jobs:
       - name: Publish @n3ary/gtfs-spec
         uses: n3ary/actions/.github/actions/package/publish@v21
         with:
-          package-dir: packages/spec
-          tag-template: 'packages/spec/v{version}'
+          package-dir: libs/spec
+          tag-template: 'libs/spec/v{version}'
           access: public
           provenance: 'true'
           github-token: ${{ secrets.GITHUB_TOKEN }}

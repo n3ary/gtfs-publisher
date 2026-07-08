@@ -13,8 +13,8 @@
     "pipeline": "pnpm --filter @gtfs/static pipeline",
     "test": "pnpm -r --parallel test",
     "test:static": "pnpm --filter @gtfs/static test",
-    "build": "pnpm -r --filter './packages/*' build",
-    "check": "pnpm -r --filter './packages/*' check",
+    "build": "pnpm -r --filter './apps/*' --filter './libs/*' build",
+    "check": "pnpm -r --filter './apps/*' --filter './libs/*' check",
     "lint": "pnpm -r --parallel lint"
   },
   "devDependencies": {

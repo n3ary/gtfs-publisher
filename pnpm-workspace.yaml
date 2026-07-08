@@ -1,15 +1,16 @@
 packages:
-  - "packages/*"
+  - "apps/*"
+  - "libs/*"
 
 # Force every transitive @n3ary/gtfs-spec dep to resolve to this
-# workspace's local checkout (link:../spec) instead of fetching the
-# published GH Packages tarball. Without this, downstream packages
+# workspace's local checkout (link:../libs/spec) instead of fetching
+# the published GH Packages tarball. Without this, downstream packages
 # like @n3ary/gtfs-adapter-cluj-napoca@0.2.0 (which declares
 # "@n3ary/gtfs-spec": "^0.3.2" as a production dep) trigger a 401
 # when CI tries to read the org's private spec package. Single source
 # of truth: workspace-only.
 #
-# `link:../spec` (the same target resolved inside the workspace's
+# `link:../libs/spec` (the same target resolved inside the workspace's
 # importer entries) is used in preference to `workspace:*` because
 # the latter caused pnpm 11.5 to also downgrade Vite (vitest@4.1.9's
 # peer fell back to vite@5.4.21 instead of vite@8.x). `link:` is the

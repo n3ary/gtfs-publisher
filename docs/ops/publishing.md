@@ -18,8 +18,8 @@ Public on GitHub Packages — anyone can `npm install @n3ary/gtfs-spec` after au
 2. Click "Run workflow"
 3. Enter the version, e.g. `0.2.0` or `0.2.0-rc.1` (prerelease tags allowed)
 4. The workflow:
-   - Bumps `packages/spec/package.json#version`
-   - Commits + tags `packages/spec/v0.2.0`
+   - Bumps `libs/spec/package.json#version`
+   - Commits + tags `libs/spec/v0.2.0`
    - Runs `pnpm install --frozen-lockfile` + `pnpm build` + `pnpm test`
    - Calls `npm publish --provenance --access public` against GitHub Packages
    - Pushes the version commit + tag back to `main`
@@ -27,8 +27,8 @@ Public on GitHub Packages — anyone can `npm install @n3ary/gtfs-spec` after au
 ### Option B: tag push
 
 ```bash
-git tag packages/spec/v0.2.0
-git push origin packages/spec/v0.2.0
+git tag libs/spec/v0.2.0
+git push origin libs/spec/v0.2.0
 ```
 
 Triggers the same workflow, skipping the version-bump step.
@@ -60,11 +60,11 @@ Then `npm install @n3ary/gtfs-spec` works.
 
 ## First-publish visibility
 
-`packages/spec/package.json#publishConfig.access` is set to `public`. To make the package private after the first publish, change the field to `restricted` (private to the org), then re-publish. The org must allow it (the org admin can enable private packages via Settings → Packages → Package creation).
+`libs/spec/package.json#publishConfig.access` is set to `public`. To make the package private after the first publish, change the field to `restricted` (private to the org), then re-publish. The org must allow it (the org admin can enable private packages via Settings → Packages → Package creation).
 
 ## Build output that ships
 
-The published tarball contains only `packages/spec/dist/` (TypeScript output). Source `.ts` files and the rest of the monorepo are excluded. To verify, after a publish:
+The published tarball contains only `libs/spec/dist/` (TypeScript output). Source `.ts` files and the rest of the monorepo are excluded. To verify, after a publish:
 
 ```bash
 npm pack @n3ary/gtfs-spec

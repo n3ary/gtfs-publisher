@@ -65,8 +65,8 @@ jobs:
             [ -z "$f" ] && continue
             case "$f" in
               docs/*|.github/*|.gitignore|LICENSE|outputs/*) : ;;
-              packages/*/outputs/*|pnpm-lock.yaml|tsconfig*.json) : ;;
-              packages/*/tsconfig.json) : ;;
+              apps/*/outputs/*|libs/*/outputs/*|pnpm-lock.yaml|tsconfig*.json) : ;;
+              apps/*/tsconfig.json|libs/*/tsconfig.json) : ;;
               *) NON_META="$NON_META $f" ;;
             esac
           done < <(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)

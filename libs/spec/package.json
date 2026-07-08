@@ -1,0 +1,73 @@
+{
+  "name": "@n3ary/gtfs-spec",
+  "version": "0.6.3",
+  "private": false,
+  "description": "GTFS spec — the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./spec": {
+      "types": "./dist/spec/index.d.ts",
+      "import": "./dist/spec/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    },
+    "./sql": {
+      "types": "./dist/sql/index.d.ts",
+      "import": "./dist/sql/index.js"
+    },
+    "./shape": {
+      "types": "./dist/shape/index.d.ts",
+      "import": "./dist/shape/index.js"
+    },
+    "./serialize": {
+      "types": "./dist/serialize/index.d.ts",
+      "import": "./dist/serialize/index.js"
+    },
+    "./waf": {
+      "types": "./dist/waf/index.d.ts",
+      "import": "./dist/waf/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest --run --passWithNoTests",
+    "lint": "echo 'no lint yet' && exit 0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/n3ary/gtfs-publisher.git",
+    "directory": "packages/spec"
+  },
+  "bugs": {
+    "url": "https://github.com/n3ary/gtfs-publisher/issues"
+  },
+  "homepage": "https://github.com/n3ary/gtfs-publisher#readme",
+  "dependencies": {
+    "csv-parse": "^7.0.1",
+    "csv-stringify": "^6.8.1",
+    "zod": "^4.4.0"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^12.11.1",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.0"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}

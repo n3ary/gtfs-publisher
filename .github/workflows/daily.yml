@@ -83,7 +83,7 @@ jobs:
           #    would not surface as a non-zero exit. Hard-fail here with a
           #    clear message rather than letting `aws s3 cp` fail later
           #    with an opaque "path does not exist".
-          OUTPUTS=packages/gtfs-static/outputs
+          OUTPUTS=apps/gtfs-static/outputs
           if [ ! -s "$OUTPUTS/feeds.json" ]; then
             echo "::error::feeds.json missing or empty at $OUTPUTS/feeds.json — 'Run pipeline' produced no output." >&2
             ls -la "$OUTPUTS" 2>/dev/null || echo "(directory $OUTPUTS does not exist)" >&2
@@ -110,7 +110,7 @@ jobs:
           #    `<id>-<hash12>.<ext>` so the same URL never serves
           #    different bytes.
           shopt -s nullglob
-          for f in packages/gtfs-static/outputs/*.sqlite3.gz packages/gtfs-static/outputs/*.gtfs.zip; do
+          for f in apps/gtfs-static/outputs/*.sqlite3.gz apps/gtfs-static/outputs/*.gtfs.zip; do
             [ -e "$f" ] || continue
             name=$(basename "$f")
             echo "[publish] uploading $name ($(du -h "$f" | cut -f1))"
@@ -123,7 +123,7 @@ jobs:
           # 2. Upload feeds.json last — the "commit" that flips clients
           #    over to any new sqlite + zip objects uploaded above.
           echo "[publish] uploading feeds.json"
-          aws s3 cp packages/gtfs-static/outputs/feeds.json "s3://$BUCKET/feeds.json" \
+          aws s3 cp apps/gtfs-static/outputs/feeds.json "s3://$BUCKET/feeds.json" \
             --endpoint-url "$ENDPOINT" \
             --cache-control "public, max-age=300" \
             --content-type "application/json"
@@ -152,7 +152,7 @@ jobs:
           #         the stream (select is a no-op at array-index
           #         level). `(.a, .b) | select(.)` filters nulls
           #         before they're collected.
-          EXPECTED=$(jq -r '["feeds.json"] + [.feeds[].files | (.sqlite_gz, .gtfs_zip) | select(.)] | .[]' packages/gtfs-static/outputs/feeds.json | sort -u)
+          EXPECTED=$(jq -r '["feeds.json"] + [.feeds[].files | (.sqlite_gz, .gtfs_zip) | select(.)] | .[]' apps/gtfs-static/outputs/feeds.json | sort -u)
           aws s3 ls "s3://$BUCKET/" --endpoint-url "$ENDPOINT" \
             | awk '{print $4}' \
             | while read -r name; do
