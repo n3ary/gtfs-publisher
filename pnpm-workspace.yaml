@@ -18,6 +18,21 @@ packages:
 # resolution path that perturbates vitest's peer resolution.
 overrides:
   '@n3ary/gtfs-spec': workspace:*
+  # protobufjs-cli@1.3.3 (transitive via gtfs-realtime-bindings) lists
+  # `glob: ^8`, which transitively pulls in inflight@1.0.6 - both
+  # npm-deprecated (memory leak + EOL). glob@9+ removed the inflight
+  # dep. We don't call protobufjs-cli at runtime (the bindings are
+  # the only thing used), so a major-version bump in their glob dep
+  # can't break our code paths. If it ever does, the failure mode is
+  # at `pnpm install` (proto parsing of the installed CLI's
+  # postinstall) or at first `gtfs-realtime-bindings` call - both
+  # surface immediately in `pnpm check` / `pnpm test`.
+  #
+  # glob@13.x is the current major (npm-deprecated: false at the
+  # time of writing); glob@10/11/12 are intermediate majors that
+  # pnpm 11 still flags as deprecated. ^13 keeps us on the
+  # maintained line and gives inflight the boot.
+  glob: ^13.0.6
 
 allowBuilds:
   better-sqlite3: true
