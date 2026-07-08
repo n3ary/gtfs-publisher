@@ -1,0 +1,15 @@
+[Unit]
+Description=iptables DNAT 80 -> 8080 for the GTFS-RT origin
+Documentation=https://github.com/n3ary/gtfs-publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# /usr/local/sbin is the conventional location for locally-installed
+# shell scripts; the install.sh bootstrap copies the script there.
+ExecStart=/usr/local/sbin/dnat-80-to-8080.sh
+
+[Install]
+WantedBy=multi-user.target
