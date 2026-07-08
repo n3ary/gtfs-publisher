@@ -15,5 +15,6 @@ libs/*/dist/
 .kiro/
 .claude/
 .kilo/worktrees/
-# CI deploy bundle (Cloudflare Pages) — never committed
-deploy/
+# CI deploy bundle (Cloudflare Pages) — never committed.
+# Anchored to the repo root so the docs/deploy/ runbook is tracked.
+/deploy/
