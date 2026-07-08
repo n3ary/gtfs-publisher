@@ -9,25 +9,26 @@ target-specific (currently Hetzner CX23 with systemd + podman).
 | File | Purpose | Installed at |
 |---|---|---|
 | `firewall.sh` | Hetzner Cloud Firewall bootstrap. Fetches the current CF edge IP ranges (IPv4 + IPv6) from `https://api.cloudflare.com/client/v4/ips` at run time and applies the rules via `hcloud firewall create` / `replace-rules`. Re-run when CF adds an edge range (CF posts to their changelog). | Hetzner Cloud (network-layer; not on the VM) |
-| `dnat-80-to-8080.sh` | iptables DNAT: forwards port 80 → 8080 on the host, so the CF edge can connect to port 80 (its default) while the Fastify origin binds 8080. Idempotent. | `/usr/local/sbin/dnat-80-to-8080.sh` |
-| `dnat-80-to-8080.service` | systemd one-shot unit that runs the DNAT script at boot. Persistence so the rule survives reboots. | `/etc/systemd/system/dnat-80-to-8080.service` |
 
 The single bootstrap script (`install.sh`) lives in
-[`apps/gtfs-rt/config/install.sh`](../gtfs-rt/config/install.sh) — that's the one the operator runs on the host. It transitively copies `dnat-80-to-8080.sh` and `dnat-80-to-8080.service` from this directory and enables the DNAT systemd unit.
+[`apps/gtfs-rt/config/install.sh`](../gtfs-rt/config/install.sh) —
+that's the one the operator runs on the host. It installs podman,
+copies the systemd unit + env file into place, and enables the
+service. The unit maps host port 80 → container 8080 via
+`podman run -p 80:8080`, so Cloudflare's default port 80 reaches
+the Fastify origin with no iptables.
 
 That's the entry point for "rebuild a Hetzner server from
 scratch" — `install.sh` is idempotent and meant to be the single
-command you run on a fresh VM. The DNAT is a separate unit so it
-can be turned on/off without touching the service.
+command you run on a fresh VM.
 
 ## First-boot order
 
 1. `apt-get update && apt-get -y install git`
 2. `git clone https://github.com/n3ary/gtfs-publisher.git && cd gtfs-publisher`
 3. (Optional) `export IMAGE=ghcr.io/n3ary/gtfs-rt:sha-<hex>` to pin
-4. `bash apps/gtfs-rt/config/install.sh` — installs podman, copies unit + env, copies the DNAT script + unit, enables both, pulls image, starts the service
-5. `curl -sSf http://127.0.0.1:8080/healthz` — should return 200 JSON
-   (`curl -sSI http://127.0.0.1/healthz` should also work — that's the DNAT'd path)
+4. `bash apps/gtfs-rt/config/install.sh` — installs podman, copies the systemd unit + env, enables the service
+5. `curl -sSf http://127.0.0.1/healthz` — should return 200 JSON (host port 80 → container 8080)
 
 ## Smoke test from the public internet
 
@@ -60,9 +61,9 @@ Outbound: 80/443/53/icmp to anywhere (ghcr.io pull, apt, DNS).
 Everything else is blocked.
 
 The firewall sits at the Hetzner edge — it's a *network-layer*
-control, in addition to whatever you put on the VM with iptables.
-The CF edge always reaches the VM via 178.104.6.65:80 (or :443 if
-you set SSL=full_strict on the zone instead of `full`).
+control. The CF edge always reaches the VM via 178.104.6.65:80
+(or :443 if you set SSL=full_strict on the zone instead of `full`).
+Podman's `-p 80:8080` then forwards that into the container.
 
 ### Usage
 

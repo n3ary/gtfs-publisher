@@ -1,0 +1,52 @@
+[Unit]
+Description=neary GTFS-RT adapter (Fastify, ghcr.io/n3ary/gtfs-rt)
+Documentation=https://github.com/n3ary/gtfs-publisher
+After=network-online.target
+Wants=network-online.target
+
+# If the upstream feeds.json host is down, back off. The Fastify
+# adapter already retries every POLL_INTERVAL_MS, so we just want
+# the container to restart cleanly on crash, not flap.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+EnvironmentFile=/etc/neary-gtfs/rt.env
+
+# Clear any previous instance with the same name (idempotent restart).
+ExecStartPre=-/usr/bin/podman rm -f neary-gtfs-rt
+
+# Rootful so podman can map host port 80 (privileged) into the
+# container's 8080. The image's USER node (uid 1000) is the
+# in-container user; the container itself binds 8080 only.
+ExecStart=/usr/bin/podman run \
+  --rm \
+  --name neary-gtfs-rt \
+  -p 80:8080 \
+  --env-file /etc/neary-gtfs/rt.env \
+  --log-driver journald \
+  --label io.github.n3ary.component=gtfs-rt \
+  --label org.opencontainers.image.source=https://github.com/n3ary/gtfs-publisher \
+  ghcr.io/n3ary/gtfs-rt:latest
+
+# Graceful: SIGTERM → Fastify drains in-flight requests, then exits.
+ExecStop=/usr/bin/podman stop --time 10 neary-gtfs-rt
+ExecStopPost=-/usr/bin/podman rm -f neary-gtfs-rt
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/etc/neary-gtfs
+
+# CX23 is 2 vCPU, 4 GB RAM. Cap memory; the container is small.
+MemoryMax=512M
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target
