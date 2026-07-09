@@ -47,10 +47,19 @@ name: Deploy gtfs-rt to Hetzner
 #                          to bind port 80, so the SSH session must
 #                          be root too. No override needed.
 
+# Auto-deploy trigger: when the Build workflow finishes on a
+# main-branch push, deploy the resulting image to the VM.
+# Filtering by branches=[main] is the key safety net - a PR
+# push that happens to succeed (some users merge via PR and
+# have pr-validation also build the image) does NOT trigger a
+# production deploy; only direct pushes to main do. The
+# job-level `if:` below further restricts to successful builds,
+# so a red build on main still does not deploy.
 on:
   workflow_run:
     workflows: ["Build ghcr.io/n3ary/gtfs-rt"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
