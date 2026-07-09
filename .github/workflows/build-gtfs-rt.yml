@@ -74,10 +74,15 @@ jobs:
         with:
           containerfiles: apps/gtfs-rt/Containerfile
           context: .
-          # Multi-arch keeps arm64-ready images around for future
-          # Hetzner CAX instances; the live VM is amd64 so this is
-          # a forward-looking choice, not a current requirement.
-          platforms: linux/amd64,linux/arm64
+          # amd64 only. The live VM is Hetzner CX23 (amd64).
+          # arm64 was originally listed for future CAX instances
+          # but the redhat-actions/buildah-build action does NOT
+          # auto-register qemu-binfmt, so adding `linux/arm64`
+          # here triggers an `Exec format error` on the first
+          # RUN step (corepack enable). When a CAX migration
+          # becomes real, add a `docker/setup-qemu-action@v3`
+          # step above this one and re-add `linux/arm64`.
+          platforms: linux/amd64
           # --secret id=...,src=... is buildah's CLI shape, matching
           # the Containerfile's `RUN --mount=type=secret,id=npm_token`.
           # Each arg on its own line; the action's exec layer
