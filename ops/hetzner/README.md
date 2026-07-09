@@ -1,6 +1,6 @@
-# `ops/hetzner/` — runtime configs for the GTFS-RT Hetzner VM
+# `ops/hetzner/` - runtime configs for the GTFS-RT Hetzner VM
 
-Everything in this directory is **deploy-side** — files that get
+Everything in this directory is **deploy-side** - files that get
 copied onto the host (or a fresh VM) to run the `gtfs-rt`
 container. The repo-stay is purely so the configs are versioned
 alongside the artifact they're for; the contents are still
@@ -11,7 +11,7 @@ target-specific (currently Hetzner CX23 with systemd + podman).
 | `firewall.sh` | Hetzner Cloud Firewall bootstrap. Fetches the current CF edge IP ranges (IPv4 + IPv6) from `https://api.cloudflare.com/client/v4/ips` at run time and applies the rules via `hcloud firewall create` / `replace-rules`. Re-run when CF adds an edge range (CF posts to their changelog). | Hetzner Cloud (network-layer; not on the VM) |
 
 The single bootstrap script (`install.sh`) lives in
-[`apps/gtfs-rt/config/install.sh`](../gtfs-rt/config/install.sh) —
+[`apps/gtfs-rt/config/install.sh`](../gtfs-rt/config/install.sh) -
 that's the one the operator runs on the host. It installs podman,
 copies the systemd unit + env file into place, and enables the
 service. The unit maps host port 80 -> container 8080 via
