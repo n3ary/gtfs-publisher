@@ -26,11 +26,6 @@ on:
       - '.github/workflows/build-gtfs-rt.yml'
       - 'apps/gtfs-rt/Containerfile'
   workflow_dispatch:
-    inputs:
-      push_latest:
-        description: 'Also retag the resulting image as :latest (otherwise only the immutable sha tag is published).'
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -45,10 +40,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Buildah
-        # buildah-action handles the rootless container build + push.
+        # buildah-action handles the rootless container build.
         # We avoid docker/build-push-action because the GH-hosted
         # runner has no Docker daemon and docker buildx setup adds
-        # 30+ seconds per job.
+        # 30+ seconds per job. We disable buildah-action's own
+        # push (push: false) because its default credentials are
+        # bound to the runner's repo (ciotlosm/gtfs-publisher),
+        # not the n3ary org - the explicit "Push with GHCR_TOKEN"
+        # step below uses GHCR_TOKEN to land the image at
+        # ghcr.io/n3ary/gtfs-rt.
         uses: containers/buildah-action@v2
         with:
           containerfiles: apps/gtfs-rt/Containerfile
@@ -61,39 +61,35 @@ jobs:
           # npm.pkg.github.com, which needs the @n3ary auth token.
           # Buildah's secrets= forwards the secret into the
           # build-time /run/secrets/npm_token mount.
-          secrets: |
-             npm_token=${{ secrets.NPM_TOKEN }}
-          tags: |
-             ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha | truncate(12, end='') }}
-             ${{ inputs.push_latest == true && 'ghcr.io/n3ary/gtfs-rt:latest' || '' }}
-          # Push directly via the GHCR_TOKEN secret. GHCR's registry
-          # host is ghcr.io; buildah-action's `push-to-github` is for
-          # the auto-detected repo, which is wrong for a different-org
-          # package like n3ary/gtfs-rt.
+          secrets: 'npm_token=${{ secrets.NPM_TOKEN }}'
+          push: false
+          # Tag the local containers-storage image. The actual
+          # docker:// push happens in the next step using
+          # GHCR_TOKEN (org-scoped, not the runner's default).
+          tags: ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha | truncate(12, end="") }}
           push: true
         env:
           REGISTRY_AUTH_FILE: /tmp/.docker/config.json
       - name: Push with GHCR_TOKEN
-        # buildah-action pushes via the GITHUB_TOKEN-derived credential
-        # which is bound to the runner's repo (ciotlosm/gtfs-publisher),
-        # not the n3ary org. We have to re-tag + push using GHCR_TOKEN
-        # to land it at ghcr.io/n3ary/gtfs-rt.
+        # The buildah-action step built the image into local
+        # containers-storage. We push from there to ghcr.io using
+        # GHCR_TOKEN, which is org-scoped (packages:write on n3ary)
+        # rather than the runner's default GITHUB_TOKEN (which is
+        # bound to the runner's repo, not the n3ary org).
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::12}"
-          PUSH_LATEST="${{ inputs.push_latest }}"
-          TAGS="ghcr.io/n3ary/gtfs-rt:sha-${SHORT_SHA}"
-          if [ "$PUSH_LATEST" = "true" ]; then
-            TAGS="$TAGS ghcr.io/n3ary/gtfs-rt:latest"
-          fi
-          for tag in $TAGS; do
-            echo "pushing $tag"
+          for tag in "sha-${SHORT_SHA}" "latest"; do
+            echo "pushing ghcr.io/n3ary/gtfs-rt:${tag}"
+            buildah tag \
+              "containers-storage:ghcr.io/n3ary/gtfs-rt:sha-${SHORT_SHA}" \
+              "containers-storage:ghcr.io/n3ary/gtfs-rt:${tag}"
             buildah push \
               --creds "ciotlosm:${GHCR_TOKEN}" \
               "containers-storage:ghcr.io/n3ary/gtfs-rt:${tag}" \
-              "docker://${tag}"
+              "docker://ghcr.io/n3ary/gtfs-rt:${tag}"
           done
       - name: Summarise
         run: |
@@ -103,6 +99,4 @@ jobs:
           echo "- commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- tags pushed:" >> "$GITHUB_STEP_SUMMARY"
           echo "  - \`ghcr.io/n3ary/gtfs-rt:sha-${SHORT_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ inputs.push_latest }}" = "true" ]; then
-            echo "  - \`ghcr.io/n3ary/gtfs-rt:latest\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "  - \`ghcr.io/n3ary/gtfs-rt:latest\`" >> "$GITHUB_STEP_SUMMARY"
