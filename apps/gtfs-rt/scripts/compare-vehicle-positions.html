@@ -300,9 +300,28 @@ function flatten(msg) {
   return { header, entities, vehicles };
 }
 
+// CORS handling: when the page is served from a real origin
+// (http://localhost:PORT via compare-server.mjs, or a hosted URL),
+// the browser will block direct cross-origin fetches unless the
+// upstream returns CORS headers. When the page is opened from
+// file:// the same is true with origin "null". Either way, the
+// safe path is to route through a same-origin /api/fetch proxy
+// when one is available (i.e. when window.location.protocol is
+// http/https). The HTML works in both modes; on file:// the
+// fetch goes direct and the user sees the CORS error, on a
+// hosted origin it goes through the proxy.
+function resolveFetchUrl(url) {
+  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+    // Same-origin proxy path. The proxy strips the upstream's
+    // CORS requirements; we just relay the body.
+    return "/api/fetch?url=" + encodeURIComponent(url);
+  }
+  return url;
+}
+
 async function fetchDecode(url) {
   const t0 = performance.now();
-  const resp = await fetch(url, { cache: "no-store" });
+  const resp = await fetch(resolveFetchUrl(url), { cache: "no-store" });
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
     throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${body.slice(0, 500)}`);
