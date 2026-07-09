@@ -134,6 +134,68 @@ Hardcoded defaults (no GH config needed):
 | `HETZNER_SSH_USER` | deploy, rebuild-vm | `root`. The systemd unit runs as root because podman needs `CAP_NET_BIND_SERVICE` to bind port 80; the SSH session has to match. |
 | `HETZNER_FIREWALL_NAME` | rebuild-vm | `neary-gtfs-rt-01-edge-only`. The firewall id created by `ops/hetzner/firewall.sh`. |
 
+### Generating the SSH key pair (one-time, per environment)
+
+A **dedicated deploy key** is strongly recommended over sharing your
+personal SSH key. If the GH secret ever leaks, a dedicated key only
+gives the attacker access to the gtfs-rt VM, not your workstation.
+
+```bash
+# 1. Generate the key on your workstation.
+#    -t ed25519: short, fast, modern.
+#    -N '' : no passphrase. CI cannot prompt; the private key IS the secret.
+ssh-keygen -t ed25519 \
+  -C 'github-actions-deploy-gtfs-rt' \
+  -f ~/.ssh/hetzner-deploy -N ''
+
+# 2. Register the PUBLIC key at Hetzner project level. The CLI form
+#    is scriptable + auditable; the Console form is at
+#    https://console.hetzner.cloud -> Project -> Security -> SSH keys.
+hcloud ssh-key create \
+  --name github-actions-deploy-gtfs-rt \
+  --public-key-from-file ~/.ssh/hetzner-deploy.pub
+
+# 3. Add the public key to the existing live VM via your personal
+#    key. Both keys can coexist in /root/.ssh/authorized_keys.
+ssh-copy-id -i ~/.ssh/hetzner-deploy.pub root@78.46.162.131
+
+# 4. Verify the new key works before wiring GH Actions.
+ssh -i ~/.ssh/hetzner-deploy root@78.46.162.131 echo ok
+
+# 5. Wire into GH Actions. -R flag works from any cwd; the bare
+#    `gh secret set` requires you to be inside the repo.
+gh secret set HETZNER_SSH_KEY \
+  --repo n3ary/gtfs-publisher < ~/.ssh/hetzner-deploy
+gh variable set HETZNER_SSH_PUBLIC_KEY \
+  --repo n3ary/gtfs-publisher < ~/.ssh/hetzner-deploy.pub
+
+# 6. Verify both are set (without leaking the secret value).
+gh secret list  --repo n3ary/gtfs-publisher | grep HETZNER_SSH_KEY
+gh variable list --repo n3ary/gtfs-publisher | grep HETZNER_SSH_PUBLIC_KEY
+```
+
+Key rotation (annual or after any suspected compromise): generate a
+new key alongside the old one, register the new public key at
+Hetzner, add it to all existing VMs, update GH side, test, then
+remove the old key from Hetzner + VMs. Full rotation procedure in
+the conversation log; in short the cutover has zero downtime
+because two SSH keys can coexist on a single VM and at a single
+Hetzner project.
+
+**Hygiene rules** (apply every time):
+
+- Never `cat` the private key in a terminal, paste in chat, commit
+  to a repo, store in `/tmp`, store in MEMORY.md, or put in a PR
+  body / commit message.
+- `chmod 600` on the private key file.
+- GH Secrets is encrypted at rest; that is the storage layer for
+  the private key. macOS keychain is acceptable for local copies.
+- Audit before reporting done: grep outputs for the key fingerprint.
+  Real ed25519 keys are 68 base64 chars starting with
+  `AAAAC3NzaC1lZDI1NTE5AAAA`. Placeholders like `xxxxxxxxxxxxxxxx`
+  are obviously fake; if you see one in your output, something
+  went wrong upstream.
+
 ### Manual recovery
 
 If the cron healthcheck is broken or you want to force a rebuild

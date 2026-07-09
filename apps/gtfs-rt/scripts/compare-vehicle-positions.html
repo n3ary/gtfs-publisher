@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vehicle position compare</title>
+<style>
+  /* All inline; no external CSS. Monospace + system-ui fallback only. */
+  :root {
+    --bg: #0e1116;
+    --fg: #e6edf3;
+    --muted: #7d8590;
+    --border: #30363d;
+    --link: #58a6ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --only: #6e7681;
+    --hl: #1f6feb33;
+    --row-alt: #161b22;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: #161b22;
+  }
+  header h1 { margin: 0 0 4px 0; font-size: 20px; font-weight: 600; }
+  header p  { margin: 0; color: var(--muted); font-size: 13px; }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    gap: 12px;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .controls label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: var(--muted);
+  }
+  .controls input {
+    background: #0d1117; color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px;
+    font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    width: 100%;
+  }
+  .controls input:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+  .controls button {
+    background: #238636; color: white; border: 0; border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-weight: 600;
+    align-self: end;
+  }
+  .controls button:hover { background: #2ea043; }
+  .controls button:disabled { background: #30363d; cursor: not-allowed; }
+  .controls .status {
+    align-self: end; font-size: 12px; color: var(--muted);
+    min-width: 200px; text-align: right;
+  }
+  .controls .status.ok   { color: var(--ok); }
+  .controls .status.err  { color: var(--err); }
+  .controls .status.warn { color: var(--warn); }
+
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .meta div { padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: #0d1117; }
+  .meta h3 { margin: 0 0 6px 0; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .meta .k { color: var(--muted); }
+  .meta .v { color: var(--fg); }
+
+  .summary {
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 24px; font-size: 13px;
+  }
+  .summary .pill {
+    display: inline-flex; gap: 6px; align-items: baseline;
+    padding: 4px 10px; border-radius: 999px;
+    background: #0d1117; border: 1px solid var(--border);
+  }
+  .summary .pill .n { font-weight: 700; font-size: 14px; }
+  .summary .pill.match .n  { color: var(--ok); }
+  .summary .pill.diff  .n  { color: var(--warn); }
+  .summary .pill.only  .n  { color: var(--only); }
+  .summary .pill.err   .n  { color: var(--err); }
+
+  .results {
+    padding: 0 24px 24px 24px;
+    overflow-x: auto;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  thead th {
+    position: sticky; top: 0;
+    background: #161b22; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding: 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  tbody td.diff  { background: var(--hl); }
+  tbody td.diff::before { content: "!= "; color: var(--warn); }
+  tbody td.onlyL { color: var(--only); }
+  tbody td.onlyL::before { content: "L "; color: var(--only); }
+  tbody td.onlyR { color: var(--only); }
+  tbody td.onlyR::before { content: "R "; color: var(--only); }
+  tbody td.err   { color: var(--err); }
+  tbody td.empty { color: var(--muted); }
+  tbody td.num   { text-align: right; }
+  .group-row td {
+    background: #0d1117 !important;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .empty-state {
+    padding: 48px 24px; text-align: center; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 6px; margin: 16px 24px;
+  }
+  footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  code { background: #0d1117; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Vehicle position compare</h1>
+  <p>Fetch two GTFS-RT <code>/vehicle_positions</code> endpoints and diff them per-vehicle. All decoding happens locally in your browser - no external resources.</p>
+</header>
+
+<div class="controls">
+  <label>Left URL
+    <input id="url-left" type="text" autocomplete="off">
+  </label>
+  <label>Right URL
+    <input id="url-right" type="text" autocomplete="off">
+  </label>
+  <button id="fetch-btn">Fetch both</button>
+  <div id="status" class="status">Ready.</div>
+</div>
+
+<div class="meta">
+  <div>
+    <h3>Left response</h3>
+    <div id="meta-left"><span class="v">awaiting fetch</span></div>
+  </div>
+  <div>
+    <h3>Right response</h3>
+    <div id="meta-right"><span class="v">awaiting fetch</span></div>
+  </div>
+</div>
+
+<div class="summary" id="summary" hidden>
+  <span class="pill match"><span class="n" id="n-match">0</span> identical</span>
+  <span class="pill diff"><span class="n" id="n-diff">0</span> differs</span>
+  <span class="pill only"><span class="n" id="n-onlyL">0</span> only in L</span>
+  <span class="pill only"><span class="n" id="n-onlyR">0</span> only in R</span>
+  <span class="pill err"><span class="n" id="n-err">0</span> decode errors</span>
+</div>
+
+<div class="results">
+  <table id="table" hidden>
+    <thead>
+      <tr>
+        <th>vehicle</th>
+        <th>trip</th>
+        <th>route</th>
+        <th>dir</th>
+        <th>start</th>
+        <th>lat</th>
+        <th>lon</th>
+        <th>bearing</th>
+        <th>speed</th>
+        <th>stop_seq</th>
+        <th>stop_id</th>
+        <th>ts</th>
+        <th>L status</th>
+        <th>R status</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty-state" id="empty">Click <b>Fetch both</b> to start.</div>
+</div>
+
+<footer>
+  Two URL inputs are decoded as GTFS-RT <code>FeedMessage</code> + <code>VehiclePosition</code> in your browser. Vehicles are matched by <code>vehicle.id</code> (falling back to <code>entity.id</code>). Numeric lat/lon are compared at 5 decimal places (about 1 metre); bearing / speed compared as integers. Decoding schema: GTFS-RT v2.0 transit_realtime.proto.
+</footer>
+
+<script>
+"use strict";
+
+/* ============================================================
+ *  Inline protobuf wire decoder
+ *  - varint (wire 0): uint32, int32 via zigzag, bool, enum
+ *  - 64-bit (wire 1): double, fixed64
+ *  - length-delimited (wire 2): string, bytes, embedded msg
+ *  - 32-bit (wire 5): float, fixed32
+ *  Sufficient for FeedMessage + VehiclePosition subset.
+ * ============================================================ */
+
+class Reader {
+  constructor(bytes) { this.bytes = bytes; this.pos = 0; }
+  remaining() { return this.bytes.length - this.pos; }
+  readVarint() {
+    let result = 0n, shift = 0n;
+    while (this.pos < this.bytes.length) {
+      const b = this.bytes[this.pos++];
+      result |= BigInt(b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return result;
+      shift += 7n;
+    }
+    throw new Error("truncated varint");
+  }
+  readTag() {
+    const v = Number(this.readVarint());
+    return { field: v >>> 3, wire: v & 0x7 };
+  }
+  readBool()    { return this.readVarint() !== 0n; }
+  readUint32()  { return Number(this.readVarint()); }
+  readInt32()   {
+    const v = this.readVarint();
+    return Number(v >> 1n) ^ -(Number(v & 1n));
+  }
+  readString()  {
+    const len = Number(this.readVarint());
+    const out = new TextDecoder("utf-8").decode(this.bytes.subarray(this.pos, this.pos + len));
+    this.pos += len;
+    return out;
+  }
+  readBytes() {
+    const len = Number(this.readVarint());
+    const out = this.bytes.subarray(this.pos, this.pos + len);
+    this.pos += len;
+    return out;
+  }
+  readFloat() {
+    if (this.pos + 4 > this.bytes.length) throw new Error("truncated float");
+    const v = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.pos, 4).getFloat32(0, true);
+    this.pos += 4; return v;
+  }
+  readDouble() {
+    if (this.pos + 8 > this.bytes.length) throw new Error("truncated double");
+    const v = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.pos, 8).getFloat64(0, true);
+    this.pos += 8; return v;
+  }
+  skip(wire) {
+    switch (wire) {
+      case 0: this.readVarint(); return;
+      case 1: this.pos += 8; return;
+      case 2: this.pos += Number(this.readVarint()); return;
+      case 5: this.pos += 4; return;
+      default: throw new Error("unknown wire type " + wire);
+    }
+  }
+}
+
+/* ============================================================
+ *  GTFS-RT v2.0 schema (subset: VehiclePosition only)
+ *  fieldMap entries: { wire, type, repeated? }
+ *    type: 'string' | 'bytes' | 'uint32' | 'int32' | 'bool'
+ *         | 'float' | 'double' | 'enum'
+ *    type: 'message:<name>' for nested messages
+ * ============================================================ */
+
+const FIELD = {
+  FeedMessage: {
+    1: { name: "header",         wire: 2, type: "message:FeedHeader" },
+    2: { name: "entity",         wire: 2, type: "message:FeedEntity", repeated: true },
+  },
+  FeedHeader: {
+    1: { name: "gtfs_realtime_version", wire: 2, type: "string" },
+    2: { name: "incrementality",        wire: 0, type: "enum" },
+    3: { name: "timestamp",             wire: 0, type: "uint32" },
+  },
+  FeedEntity: {
+    1: { name: "id",          wire: 2, type: "string" },
+    3: { name: "trip_update", wire: 2, type: "message:TripUpdate" },
+    4: { name: "vehicle",     wire: 2, type: "message:VehiclePosition" },
+    5: { name: "alert",       wire: 2, type: "message:Alert" },
+  },
+  VehiclePosition: {
+    1: { name: "trip",                 wire: 2, type: "message:TripDescriptor" },
+    2: { name: "position",            wire: 2, type: "message:Position" },
+    3: { name: "current_stop_sequence", wire: 0, type: "uint32" },
+    4: { name: "stop_id",              wire: 2, type: "string" },
+    5: { name: "current_status",       wire: 0, type: "enum" },
+    6: { name: "timestamp",            wire: 0, type: "uint32" },
+    7: { name: "congestion_level",     wire: 0, type: "enum" },
+    8: { name: "vehicle",              wire: 2, type: "message:VehicleDescriptor" },
+  },
+  Position: {
+    1: { name: "latitude",  wire: 5, type: "float" },
+    2: { name: "longitude", wire: 5, type: "float" },
+    3: { name: "bearing",   wire: 5, type: "float" },
+    4: { name: "odometer",  wire: 1, type: "double" },
+    5: { name: "speed",     wire: 5, type: "float" },
+  },
+  TripDescriptor: {
+    1: { name: "trip_id",     wire: 2, type: "string" },
+    2: { name: "start_time",  wire: 2, type: "string" },
+    3: { name: "start_date",  wire: 2, type: "string" },
+    4: { name: "schedule_relationship", wire: 0, type: "enum" },
+    5: { name: "route_id",    wire: 2, type: "string" },
+    6: { name: "direction_id", wire: 0, type: "uint32" },
+  },
+  VehicleDescriptor: {
+    1: { name: "id",            wire: 2, type: "string" },
+    2: { name: "label",         wire: 2, type: "string" },
+    3: { name: "license_plate", wire: 2, type: "string" },
+  },
+  /* Stub messages so unknown ones don't crash the decoder.
+     Only VehiclePosition is rendered, so stubs are sufficient. */
+  TripUpdate: {},
+  Alert: {},
+};
+
+function readPrimitive(reader, type) {
+  switch (type) {
+    case "string":  return reader.readString();
+    case "bytes":   return reader.readBytes();
+    case "uint32":  return reader.readUint32();
+    case "int32":   return reader.readInt32();
+    case "bool":    return reader.readBool();
+    case "float":   return reader.readFloat();
+    case "double":  return reader.readDouble();
+    case "enum":    return reader.readUint32(); // enums are varints
+  }
+  throw new Error("unknown primitive type " + type);
+}
+
+function decodeMessage(reader, name) {
+  const schema = FIELD[name];
+  if (!schema) throw new Error("no schema for " + name);
+  const out = {};
+  while (reader.remaining() > 0) {
+    const tag = reader.readTag();
+    const field = schema[tag.field];
+    if (!field) {
+      reader.skip(tag.wire);
+      continue;
+    }
+    if (field.repeated) {
+      (out[field.name] ||= []).push(decodeField(reader, field, name));
+    } else {
+      out[field.name] = decodeField(reader, field, name);
+    }
+  }
+  return out;
+}
+
+function decodeField(reader, field, parentName) {
+  if (field.type.startsWith("message:")) {
+    const sub = field.type.slice("message:".length);
+    const len = Number(reader.readVarint());
+    const subReader = new Reader(reader.bytes.subarray(reader.pos, reader.pos + len));
+    reader.pos += len;
+    return decodeMessage(subReader, sub);
+  }
+  return readPrimitive(reader, field.type);
+}
+
+/* ============================================================
+ *  Fetch + decode a URL
+ * ============================================================ */
+
+async function fetchDecode(url) {
+  const t0 = performance.now();
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${body.slice(0, 500)}`);
+  }
+  const contentType = resp.headers.get("content-type") || "(none)";
+  const buf = new Uint8Array(await resp.arrayBuffer());
+  const dtMs = performance.now() - t0;
+
+  const reader = new Reader(buf);
+  let msg;
+  try {
+    msg = decodeMessage(reader, "FeedMessage");
+  } catch (e) {
+    throw new Error("protobuf decode failed: " + e.message);
+  }
+
+  // Flatten to per-vehicle rows + capture meta.
+  const header = msg.header || {};
+  const entities = msg.entity || [];
+  const vehicles = [];
+  for (const e of entities) {
+    if (!e.vehicle) continue;
+    const v = e.vehicle;
+    const t = v.trip || {};
+    const p = v.position || {};
+    const vd = v.vehicle || {};
+    vehicles.push({
+      vehicleId:    vd.id || e.id || "",
+      tripId:       t.trip_id || "",
+      routeId:      t.route_id || "",
+      directionId:  t.direction_id ?? null,
+      startTime:    t.start_time || "",
+      lat:          p.latitude ?? null,
+      lon:          p.longitude ?? null,
+      bearing:      p.bearing ?? null,
+      speed:        p.speed ?? null,
+      stopSeq:      v.current_stop_sequence ?? null,
+      stopId:       v.stop_id || "",
+      timestamp:    v.timestamp ?? null,
+    });
+  }
+  return {
+    meta: {
+      url,
+      status: resp.status,
+      contentType,
+      bytes: buf.length,
+      durationMs: Math.round(dtMs),
+      gtfsRtVersion: header.gtfs_realtime_version || "",
+      incrementality: header.incrementality ?? "",
+      timestamp: header.timestamp ?? null,
+      entityCount: entities.length,
+      vehicleCount: vehicles.length,
+    },
+    vehicles,
+  };
+}
+
+/* ============================================================
+ *  Diff rows between L and R
+ * ============================================================ */
+
+function sameNum(a, b, digits) {
+  if (a == null || b == null) return a === b;
+  const k = Math.pow(10, digits);
+  return Math.round(Number(a) * k) === Math.round(Number(b) * k);
+}
+function sameInt(a, b) {
+  if (a == null || b == null) return a === b;
+  return Math.round(Number(a)) === Math.round(Number(b));
+}
+function sameStr(a, b) { return (a || "") === (b || ""); }
+
+function diffRows(L, R) {
+  const mapL = new Map(L.map(v => [v.vehicleId, v]));
+  const mapR = new Map(R.map(v => [v.vehicleId, v]));
+  const allIds = new Set([...mapL.keys(), ...mapR.keys()]);
+
+  const rows = [];
+  let nMatch = 0, nDiff = 0, nOnlyL = 0, nOnlyR = 0, nErr = 0;
+
+  const sortedIds = [...allIds].sort();
+  for (const id of sortedIds) {
+    const l = mapL.get(id);
+    const r = mapR.get(id);
+
+    let status;
+    let row;
+    if (l && !r) {
+      status = "onlyL"; nOnlyL++;
+      row = vehicleRow(l);
+      row.L_status = "OK"; row.R_status = "missing";
+    } else if (!l && r) {
+      status = "onlyR"; nOnlyR++;
+      row = vehicleRow(r);
+      row.L_status = "missing"; row.R_status = "OK";
+    } else {
+      // compare fields; collect which differ
+      const diffs = new Set();
+      const fields = ["tripId","routeId","directionId","startTime","stopId","stopSeq","timestamp"];
+      for (const f of fields) if (!sameStr(l[f], r[f])) diffs.add(f);
+      if (!sameNum(l.lat, r.lat, 5)) diffs.add("lat");
+      if (!sameNum(l.lon, r.lon, 5)) diffs.add("lon");
+      if (!sameInt(l.bearing, r.bearing)) diffs.add("bearing");
+      if (!sameInt(l.speed, r.speed)) diffs.add("speed");
+
+      if (diffs.size === 0) {
+        status = "match"; nMatch++;
+        row = vehicleRow(l);
+        row.L_status = "OK"; row.R_status = "OK";
+      } else {
+        status = "diff"; nDiff++;
+        row = vehicleRow(l, r, diffs);
+        row.L_status = "OK"; row.R_status = "OK (diff)";
+      }
+    }
+    row._status = status;
+    rows.push(row);
+  }
+
+  return { rows, nMatch, nDiff, nOnlyL, nOnlyR, nErr };
+}
+
+function vehicleRow(l, r, diffs) {
+  const row = {
+    vehicleId: l.vehicleId,
+    tripId:    { L: l.tripId,    R: r?.tripId,    diff: diffs?.has("tripId") },
+    routeId:   { L: l.routeId,   R: r?.routeId,   diff: diffs?.has("routeId") },
+    directionId: { L: l.directionId, R: r?.directionId, diff: diffs?.has("directionId") },
+    startTime: { L: l.startTime, R: r?.startTime, diff: diffs?.has("startTime") },
+    lat:       { L: l.lat,       R: r?.lat,       diff: diffs?.has("lat") },
+    lon:       { L: l.lon,       R: r?.lon,       diff: diffs?.has("lon") },
+    bearing:   { L: l.bearing,   R: r?.bearing,   diff: diffs?.has("bearing") },
+    speed:     { L: l.speed,     R: r?.speed,     diff: diffs?.has("speed") },
+    stopSeq:   { L: l.stopSeq,   R: r?.stopSeq,   diff: diffs?.has("stopSeq") },
+    stopId:    { L: l.stopId,    R: r?.stopId,    diff: diffs?.has("stopId") },
+    ts:        { L: l.timestamp, R: r?.timestamp, diff: diffs?.has("timestamp") },
+  };
+  if (!r) row._onlyL = true;
+  return row;
+}
+
+/* ============================================================
+ *  Render
+ * ============================================================ */
+
+function fmt(v, digits) {
+  if (v === null || v === undefined || v === "") return "";
+  if (digits != null && typeof v === "number") return v.toFixed(digits);
+  return String(v);
+}
+
+function renderRow(row) {
+  const tr = document.createElement("tr");
+  const cells = [
+    [row.vehicleId,                            null,  row.vehicleId],
+    [row.tripId,                               "diff", [fmt(row.tripId.L), fmt(row.tripId.R)]],
+    [row.routeId,                              "diff", [fmt(row.routeId.L), fmt(row.routeId.R)]],
+    [row.directionId,                          "diff", [fmt(row.directionId.L), fmt(row.directionId.R)]],
+    [row.startTime,                            "diff", [fmt(row.startTime.L), fmt(row.startTime.R)]],
+    [row.lat,                                  "diff", [fmt(row.lat.L, 5), fmt(row.lat.R, 5)]],
+    [row.lon,                                  "diff", [fmt(row.lon.L, 5), fmt(row.lon.R, 5)]],
+    [row.bearing,                              "diff", [fmt(row.bearing.L, 0), fmt(row.bearing.R, 0)]],
+    [row.speed,                                "diff", [fmt(row.speed.L, 1), fmt(row.speed.R, 1)]],
+    [row.stopSeq,                              "diff", [fmt(row.stopSeq.L), fmt(row.stopSeq.R)]],
+    [row.stopId,                               "diff", [fmt(row.stopId.L), fmt(row.stopId.R)]],
+    [row.ts,                                   "diff", [fmt(row.ts.L), fmt(row.ts.R)]],
+  ];
+  for (const [, , vals] of cells) {
+    const td = document.createElement("td");
+    td.textContent = vals;
+    tr.appendChild(td);
+  }
+  // L status / R status
+  const sl = document.createElement("td"); sl.textContent = row.L_status || "";
+  const sr = document.createElement("td"); sr.textContent = row.R_status || "";
+  tr.appendChild(sl); tr.appendChild(sr);
+
+  // Highlight diffs
+  if (row._status === "diff") {
+    tr.classList.add("diff-row");
+    // mark individual cells
+    const fields = ["tripId","routeId","directionId","startTime","lat","lon","bearing","speed","stopSeq","stopId","ts"];
+    let ci = 1;
+    for (const f of fields) {
+      const cell = tr.children[ci++];
+      if (row[f] && row[f].diff) cell.classList.add("diff");
+    }
+  } else if (row._status === "onlyL") {
+    tr.classList.add("onlyL-row");
+  } else if (row._status === "onlyR") {
+    tr.classList.add("onlyR-row");
+  }
+  return tr;
+}
+
+function renderMeta(el, m, err) {
+  if (err) {
+    el.innerHTML = `<span class="v err">${escapeHtml(err.message || String(err))}</span>`;
+    return;
+  }
+  el.innerHTML = `
+    <div><span class="k">URL:        </span><span class="v">${escapeHtml(m.url)}</span></div>
+    <div><span class="k">HTTP:       </span><span class="v">${m.status}</span></div>
+    <div><span class="k">type:       </span><span class="v">${escapeHtml(m.contentType)}</span></div>
+    <div><span class="k">bytes:      </span><span class="v">${m.bytes}</span></div>
+    <div><span class="k">fetch:      </span><span class="v">${m.durationMs} ms</span></div>
+    <div><span class="k">gtfs-rt:    </span><span class="v">${escapeHtml(m.gtfsRtVersion)} (increm=${m.incrementality})</span></div>
+    <div><span class="k">header ts:  </span><span class="v">${m.timestamp ?? ""}</span></div>
+    <div><span class="k">entity / vehicle: </span><span class="v">${m.entityCount} / ${m.vehicleCount}</span></div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ============================================================
+ *  App wiring
+ * ============================================================ */
+
+const DEFAULTS = {
+  left:  "https://gtfs.n3ary.com/rt/cluj-napoca/vehicle_positions",
+  right: "https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions",
+};
+
+const $ = (id) => document.getElementById(id);
+const leftInput  = $("url-left");
+const rightInput = $("url-right");
+const fetchBtn   = $("fetch-btn");
+const statusEl   = $("status");
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = "status " + (cls || "");
+}
+
+// Restore last-used URLs from localStorage
+function loadUrls() {
+  leftInput.value  = localStorage.getItem("vp-compare-left")  || DEFAULTS.left;
+  rightInput.value = localStorage.getItem("vp-compare-right") || DEFAULTS.right;
+}
+function saveUrls() {
+  localStorage.setItem("vp-compare-left",  leftInput.value);
+  localStorage.setItem("vp-compare-right", rightInput.value);
+}
+
+async function run() {
+  saveUrls();
+  fetchBtn.disabled = true;
+  $("empty").hidden = true;
+  $("table").hidden = true;
+  $("summary").hidden = true;
+  $("tbody").innerHTML = "";
+  setStatus("fetching both URLs in parallel...", "warn");
+
+  let L, R, lErr, rErr;
+  [L, R] = await Promise.all([
+    fetchDecode(leftInput.value).catch(e => { lErr = e; return null; }),
+    fetchDecode(rightInput.value).catch(e => { rErr = e; return null; }),
+  ]);
+
+  renderMeta($("meta-left"),  L, lErr);
+  renderMeta($("meta-right"), R, rErr);
+
+  if (lErr || rErr) {
+    setStatus(`left: ${lErr ? "ERROR" : "ok"} | right: ${rErr ? "ERROR" : "ok"}`,
+              (lErr && rErr) ? "err" : "warn");
+    fetchBtn.disabled = false;
+    return;
+  }
+
+  setStatus(`fetched both in parallel; comparing...`, "warn");
+  const { rows, nMatch, nDiff, nOnlyL, nOnlyR } = diffRows(L.vehicles, R.vehicles);
+  $("n-match").textContent = nMatch;
+  $("n-diff").textContent  = nDiff;
+  $("n-onlyL").textContent = nOnlyL;
+  $("n-onlyR").textContent = nOnlyR;
+  $("n-err").textContent   = 0;
+
+  const tbody = $("tbody");
+  for (const row of rows) tbody.appendChild(renderRow(row));
+
+  $("table").hidden = false;
+  $("summary").hidden = false;
+  setStatus(`${rows.length} vehicles total. ${nMatch} identical, ${nDiff} differ, ${nOnlyL} only-L, ${nOnlyR} only-R.`, nDiff + nOnlyL + nOnlyR === 0 ? "ok" : "warn");
+  fetchBtn.disabled = false;
+}
+
+fetchBtn.addEventListener("click", run);
+[leftInput, rightInput].forEach(el => el.addEventListener("keydown", e => {
+  if (e.key === "Enter") run();
+}));
+
+loadUrls();
+setStatus("Ready. Click Fetch both (or press Enter in a URL box).");
+</script>
+
+</body>
+</html>
