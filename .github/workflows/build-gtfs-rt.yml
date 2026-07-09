@@ -67,11 +67,15 @@ jobs:
           # is what we need to land the image at ghcr.io/n3ary/
           # rather than at the runner's default repo.
           push: false
-          # Tag the local containers-storage image. Wrapped in
-          # single quotes so YAML does not interpret the trailing
-          # `}}` as a flow mapping close (which would confuse the
-          # GH Actions expression parser downstream).
-          tags: 'ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha | truncate(12, end="") }}'
+          # Tag the local containers-storage image with the full
+          # 40-char git SHA. The next step ("Push with GHCR_TOKEN")
+          # slices the first 12 chars via shell `${GITHUB_SHA::12}`
+          # for the :sha-<12hex> label it pushes. Using the full
+          # SHA here avoids a GH Actions expression that's been
+          # tripping the workflow-file validator (a `|` inside
+          # a `${{ ... }}` value interacts badly with the YAML
+          # flow-mapping parser even after single-quoting).
+          tags: 'ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha }}'
       - name: Push with GHCR_TOKEN
         # The buildah-action step built the image into local
         # containers-storage. We push from there to ghcr.io using
