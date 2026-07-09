@@ -240,13 +240,14 @@ const root = protobuf.parse(window.__GTFS_RT_PROTO__, { keepCase: true }).root;
 const FeedMessage = root.lookupType("transit_realtime.FeedMessage");
 
 const DEFAULTS = {
-  // Left = current production (Hetzner-backed). The compare
-  // tool's purpose is "is my production still serving what the
-  // upstream publishes?", so the production URL is the anchor.
-  left:  "https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions",
-  // Right = upstream raw feed. Swap for the Pages Function URL
-  // or a staging URL as needed.
-  right: "https://cluj-rt-feed.gtfs.ro/vehiclePositions",
+  // Left = the Pages-Function-backed endpoint that the PWA hits
+  // at https://app.n3ary.com via /api/rt/<feed>/vehiclePositions.
+  // This is the historical pre-Hetzner path; the right URL is the
+  // replacement Hetzner origin so the diff surfaces any
+  // behavioural drift introduced by the new container.
+  left:  "https://app.n3ary.com/api/rt/cluj-napoca/vehiclePositions",
+  // Right = new Hetzner production (after the PR #132 cutover).
+  right: "https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -545,8 +546,8 @@ async function run() {
     fetchDecode(rightInput.value).catch(e => { rErr = e; return null; }),
   ]);
 
-  renderMeta($("meta-left"),  L, lErr);
-  renderMeta($("meta-right"), R, rErr);
+  renderMeta($("meta-left"),  L && L.meta, lErr);
+  renderMeta($("meta-right"), R && R.meta, rErr);
 
   if (lErr || rErr) {
     setStatus(`left: ${lErr ? "ERROR" : "ok"} | right: ${rErr ? "ERROR" : "ok"}`,
