@@ -248,59 +248,83 @@ jobs:
           exit 1
 
       - name: Bootstrap new VM
-        # Replaces the previous two-step shape (appleboy/scp-action
-        # to copy install.sh + the systemd files, then a separate
-        # appleboy/ssh-action to run install.sh). One SSH round-trip,
-        # one action, files pulled via curl from raw.githubusercontent.com
-        # pinned to the same commit SHA that triggered the rebuild -
-        # so a future install.sh change can't be picked up by an
-        # in-flight rebuild that started before the change landed.
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ steps.create.outputs.ip }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 10m
-          # GHCR_TOKEN + GHCR_USER are exported to the remote SSH
-          # session so install.sh's `podman login ghcr.io ...` line
-          # can authenticate before it does `systemctl enable --now`
-          # on the unit (which would otherwise trigger the first
-          # podman pull before login completes, 401-ing and
-          # restart-looping). install.sh has the login logic - this
-          # step just provides the env vars it needs.
-          #
-          # `envs` (plural, comma-separated KEY=VALUE pairs) is the
-          # appleboy/ssh-action input that exports vars to the
-          # remote SSH session. `env` at the with: level is NOT a
-          # valid input on this action - it triggers a YAML parse
-          # error from the workflow_dispatch endpoint.
-          envs: GHCR_TOKEN=${{ secrets.GHCR_TOKEN }},GHCR_USER=ciotlosm
-          script: |
-            set -euo pipefail
-            mkdir -p /opt/neary-bootstrap
-            cd /opt/neary-bootstrap
-            BASE="https://raw.githubusercontent.com/n3ary/gtfs-publisher/${{ github.sha }}/apps/gtfs-rt/config"
-            for f in install.sh neary-gtfs-rt.service neary-gtfs-rt-healthcheck.sh \
-                     neary-gtfs-rt-healthcheck.service neary-gtfs-rt-healthcheck.timer \
-                     rt.env.example; do
-              curl -fsSL "$BASE/$f" -o "$f"
-            done
-            chmod +x install.sh neary-gtfs-rt-healthcheck.sh
-            bash install.sh
+        # Raw ssh via `run:` instead of appleboy/ssh-action.
+        # Tested the appleboy action's `envs: KEY=VALUE`,
+        # `envs: KEY`, `allenvs: true` (+ step-level env:) forms
+        # on this exact step - all three silently failed to
+        # forward GHCR_TOKEN to the remote. install.sh's `set -u`
+        # then blew up with 'GHCR_TOKEN: unbound variable' on
+        # the first attempt to use the var, and the subsequent
+        # `podman pull` 401-ed with the misleading
+        # 'invalid username/password' error. The appleboy
+        # action's docs and reality disagree for this setup.
+        #
+        # Raw ssh works: the runner has GHCR_TOKEN in its env
+        # (from the step-level `env:` below), and we explicitly
+        # export it to the remote via `env "GHCR_TOKEN=..."` in
+        # the SSH command. The value is masked by GH in the
+        # log (the secret's value matches GH's masking pattern).
+        # The bootstrap script is fed via stdin as a heredoc,
+        # so it does not appear in `ps` or in any log; only the
+        # SSH command line itself is visible, and the only
+        # secret in that line is the env-var assignment, which
+        # GH masks.
+        #
+        # Same files-as-before: pulled from raw.githubusercontent.com
+        # pinned to ${{ github.sha }} so an in-flight rebuild
+        # can't pick up a future install.sh change.
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
 
-            # Wait for /healthz to come up on the new VM. The
-            # systemd unit pulls the image on first start, so allow
-            # up to 2 minutes.
-            for i in $(seq 1 60); do
-              if curl -fsS --max-time 2 http://127.0.0.1/healthz >/dev/null 2>&1; then
-                echo "ok: /healthz 200 on new VM after ${i} attempts"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "fail: /healthz never returned 200 on new VM"
-            journalctl -u neary-gtfs-rt -n 50 --no-pager || true
-            exit 1
+          # Write the SSH private key to a 0600 file on the
+          # runner. mktemp + trap so the key is rm'd whether the
+          # step succeeds or fails.
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s' "$HETZNER_SSH_KEY" > "$KEY_FILE"
+          chmod 0600 "$KEY_FILE"
+
+          NEW_IP='${{ steps.create.outputs.ip }}'
+
+          # SSH to the new VM. The bootstrap script is fed via
+          # stdin; GHCR_TOKEN + GITHUB_SHA are exported on the
+          # remote via `env VAR=...` so install.sh can see them.
+          ssh -i "$KEY_FILE" \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=10 \
+              "root@${NEW_IP}" \
+              env "GHCR_TOKEN=${GHCR_TOKEN}" "GITHUB_SHA=${{ github.sha }}" \
+              bash -s <<'BOOTSTRAP'
+          set -euo pipefail
+          mkdir -p /opt/neary-bootstrap
+          cd /opt/neary-bootstrap
+          BASE="https://raw.githubusercontent.com/n3ary/gtfs-publisher/${GITHUB_SHA}/apps/gtfs-rt/config"
+          for f in install.sh neary-gtfs-rt.service neary-gtfs-rt-healthcheck.sh \
+                   neary-gtfs-rt-healthcheck.service neary-gtfs-rt-healthcheck.timer \
+                   rt.env.example; do
+            curl -fsSL "$BASE/$f" -o "$f"
+          done
+          chmod +x install.sh neary-gtfs-rt-healthcheck.sh
+          bash install.sh
+
+          # Wait for /healthz to come up on the new VM. The
+          # systemd unit pulls the image on first start, so allow
+          # up to 2 minutes.
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1/healthz >/dev/null 2>&1; then
+              echo "ok: /healthz 200 on new VM after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "fail: /healthz never returned 200 on new VM"
+          journalctl -u neary-gtfs-rt -n 50 --no-pager || true
+          exit 1
+          BOOTSTRAP
 
       - name: Swap the DNS A record
         env:
