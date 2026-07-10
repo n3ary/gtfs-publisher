@@ -206,7 +206,14 @@ jobs:
           host: ${{ steps.create.outputs.ip }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          source: 'apps/gtfs-rt/config/{install.sh,neary-gtfs-rt.service,neary-gtfs-rt-healthcheck.sh,neary-gtfs-rt-healthcheck.service,neary-gtfs-rt-healthcheck.timer,rt.env.example}'
+          # comma-separated list of files (no brace expansion -
+          # drone-scp v0.1.7 passes the source verbatim to tar, so
+          # bash-only brace expansion ends up as a literal filename
+          # that doesn't exist, and tar errors with "cowardly
+          # refusing to create an empty archive"). appleboy/scp-
+          # action's README confirms comma is the multi-source
+          # separator.
+          source: 'apps/gtfs-rt/config/install.sh,apps/gtfs-rt/config/neary-gtfs-rt.service,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.sh,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.service,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.timer,apps/gtfs-rt/config/rt.env.example'
           target: /tmp/neary-install
 
       - name: Bootstrap new VM
