@@ -1,87 +1,12 @@
 name: Deploy gtfs-rt to Hetzner
 
-# Triggers after the build workflow finishes successfully, OR
-# manually via workflow_dispatch for ad-hoc deploys / rollbacks.
+# Auto-deploy when the Build workflow finishes on main. Manual
+# dispatch for ad-hoc deploys / rollbacks.
 #
-# Flow:
-#   1. Resolve the current origin IP via the Cloudflare DNS API
-#      (the "Resolve origin IP" step). gtfs-rt.n3ary.com is CF-
-#      proxied, so DNS for that hostname returns a CF edge IP
-#      that does not accept port 22; the CF API GET on the
-#      gtfs-rt.n3ary.com A record returns the actual Hetzner
-#      VM IP. The rebuild-gtfs-rt-vm workflow updates this same
-#      A record as part of a VM swap, so the deploy job always
-#      lands on the currently-active VM without any workflow-
-#      level host config.
-#   2. PRE-CHECK: capture whether the currently-running container
-#      is healthy, and snapshot its image as a backup so we can
-#      roll back if the new image fails to start. The backup is
-#      only made when the current state is healthy - we never
-#      back up a known-bad image.
-#   3. DEPLOY: pull the new image, re-tag locally, restart the
-#      systemd unit.
-#   4. CONTAINER HEALTH CHECK: wait for the OCI HEALTHCHECK
-#      status (when defined in the image) or curl /healthz as
-#      fallback. Both must report healthy within the timeout
-#      window.
-#   5. ON FAILURE: if the pre-check was healthy, restore the
-#      backup image and restart; the rollback restores the
-#      service but the pipeline still fails (exit 1) so the
-#      operator notices. If the pre-check was unhealthy we
-#      don't roll back (the backup is also broken) - we just
-#      fail loudly.
-#
-# Configuration (only what is actually sensitive goes in GH Secrets):
-#   Secrets (Settings > Secrets > Actions):
-#     HETZNER_SSH_KEY         - private half of an SSH key whose
-#                               public half is registered at the
-#                               Hetzner Cloud Console (Project >
-#                               Security > SSH keys).
-#     GHCR_TOKEN              - github PAT with packages:read for
-#                               n3ary org. Same secret as build-
-#                               gtfs-rt.yml's GHCR_TOKEN.
-#     CLOUDFLARE_API_TOKEN    - CF API token with Zone DNS read
-#                               for n3ary.com. Used by the
-#                               "Resolve origin IP" step below to
-#                               translate gtfs-rt.n3ary.com to the
-#                               current origin IP (CF's HTTP proxy
-#                               does not forward port 22, so we
-#                               cannot SSH to the hostname directly).
-#   Variables (Settings > Variables > Actions; visible to repo
-#   readers, used for public config that may differ per env):
-#     CLOUDFLARE_ZONE_ID              - n3ary.com zone id.
-#     CLOUDFLARE_GTFS_RT_A_RECORD_ID  - gtfs-rt.n3ary.com A record
-#                                       id. The deploy job reads
-#                                       .result.content to find
-#                                       the origin IP; the rebuild
-#                                       workflow patches the same
-#                                       record's .content as part
-#                                       of a VM swap. The deploy
-#                                       job therefore always lands
-#                                       on the currently-active VM
-#                                       without any workflow-level
-#                                       host config.
-#   Hardcoded in the workflow:
-#     HETZNER_SSH_USER   - root. The systemd unit runs as root
-#                          because podman needs CAP_NET_BIND_SERVICE
-#                          to bind port 80, so the SSH session must
-#                          be root too. No override needed.
-#   Deprecated (kept for now, no longer referenced):
-#     HETZNER_HOST       - was used as the SSH host pre-#135. The
-#                          CF A record is now the source of truth
-#                          for the active origin IP, so the value
-#                          of this variable is irrelevant to the
-#                          deploy job. Safe to delete from repo
-#                          Variables at the next cleanup.
+# Requires:
+#   Secrets: HETZNER_SSH_KEY, GHCR_TOKEN, CLOUDFLARE_API_TOKEN
+#   Variables: CLOUDFLARE_ZONE_ID, CLOUDFLARE_GTFS_RT_A_RECORD_ID
 
-# Auto-deploy trigger: when the Build workflow finishes on a
-# main-branch push, deploy the resulting image to the VM.
-# Filtering by branches=[main] is the key safety net - a PR
-# push that happens to succeed (some users merge via PR and
-# have pr-validation also build the image) does NOT trigger a
-# production deploy; only direct pushes to main do. The
-# job-level `if:` below further restricts to successful builds,
-# so a red build on main still does not deploy.
 on:
   workflow_run:
     workflows: ["Build ghcr.io/n3ary/gtfs-rt"]
@@ -90,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Image tag to deploy (default: latest). Useful for rolling back to a specific build.'
+        description: 'Image tag to deploy (default: latest).'
         required: false
         default: 'latest'
 
@@ -108,49 +33,38 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Resolve origin IP via CF API
-        # gtfs-rt.n3ary.com is CF-proxied: DNS returns a CF edge
-        # IP, not the origin (Hetzner VM) IP. CF's edge does not
-        # forward port 22, so SSH via the hostname hits
-        # `dial tcp <cf-ip>:22: i/o timeout`. Resolve the A record
-        # content (= the current origin IP) through CF's API
-        # instead, and SSH to that. The CF A record is the source
-        # of truth for "where the VM is", so this also makes
-        # the deploy workflow self-healing across rebuild-gtfs-rt-
-        # vm swaps (the rebuild workflow patches the A record as
-        # part of the cutover; the next deploy lands on the new
-        # VM without any host change here).
+        # gtfs-rt.n3ary.com is CF-proxied; DNS returns a CF edge IP
+        # that does not forward port 22. Read the A-record content
+        # (= the current Hetzner VM IP) over CF's REST API instead;
+        # rebuild-gtfs-rt-vm updates the same record on every VM
+        # swap, so this stays self-healing across rebuilds.
         id: resolve-host
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
           RECORD_ID: ${{ vars.CLOUDFLARE_GTFS_RT_A_RECORD_ID }}
         run: |
-          set -euo pipefail
-          : "${ZONE_ID:?CLOUDFLARE_ZONE_ID repo variable is required}"
-          : "${RECORD_ID:?CLOUDFLARE_GTFS_RT_A_RECORD_ID repo variable is required}"
-          : "${CF_TOKEN:?CLOUDFLARE_API_TOKEN repo secret is required}"
-          RESP=$(curl -fsS \
-            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
-            -H "Authorization: Bearer ${CF_TOKEN}" \
-            -H "Content-Type: application/json")
-          # CF returns {"success": true, "result": {"content": "1.2.3.4", ...}, ...}
-          # on success, and {"success": false, "errors": [...]} on failure.
-          # Validate success first, then extract. Both in one jq
-          # so we never reach `.result` when success is false.
-          if ! IP=$(echo "$RESP" | jq -e -r 'select(.success == true) | .result.content'); then
-            echo "::error::CF API did not return success: $RESP"
-            exit 1
-          fi
-          # Sanity: must look like an IPv4. CF won't ever return
-          # anything else for an A record, but if the record
-          # somehow becomes a CNAME the deploy would SSH to a
-          # hostname and silently fail. Catch it here.
-          if ! [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
-            echo "::error::resolved origin IP '$IP' is not an IPv4 literal"
-            exit 1
-          fi
-          echo "origin IP for gtfs-rt.n3ary.com: ${IP}"
-          echo "ip=${IP}" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import json, os, urllib.request
+          req = urllib.request.Request(
+              f"https://api.cloudflare.com/client/v4/zones/{os.environ['ZONE_ID']}/dns_records/{os.environ['RECORD_ID']}",
+              headers={
+                  "Authorization": f"Bearer {os.environ['CF_TOKEN']}",
+                  "Content-Type": "application/json",
+              },
+          )
+          data = json.load(urllib.request.urlopen(req))
+          if not data.get("success"):
+              raise SystemExit(f"CF API failed: {data.get('errors')}")
+          ip = data["result"]["content"]
+          octets = ip.split(".")
+          if len(octets) != 4 or not all(0 <= int(o) <= 255 for o in octets):
+              raise SystemExit(f"resolved IP '{ip}' is not an IPv4 literal")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"ip={ip}\n")
+          print(f"origin IP for gtfs-rt.n3ary.com: {ip}")
+          PY
+
       - name: Deploy (pre-check, backup, pull, restart, healthcheck, rollback)
         uses: appleboy/ssh-action@v1
         with:
@@ -168,16 +82,14 @@ jobs:
 
             LOG "deploying ghcr.io/n3ary/gtfs-rt:${TAG} to $(hostname) ($(hostname -i))"
 
-            # ---- Log in to ghcr.io so podman can pull ----
+            # Log in to ghcr.io so podman can pull.
             if [ -n "${GHCR_TOKEN:-}" ]; then
               echo "${GHCR_TOKEN}" | podman login ghcr.io -u ciotlosm --password-stdin >/dev/null
             fi
 
-            # ---- Pre-check: is the current container healthy? ----
+            # Pre-check: is the current container healthy?
             # We use podman's State.Healthcheck.Status when present,
-            # otherwise we fall back to curl /healthz. The health
-            # probe runs twice (5 s apart) to avoid flapping on a
-            # transient CF edge hiccup.
+            # otherwise fall back to curl /healthz.
             PROBE() {
               local status
               status=$(podman inspect neary-gtfs-rt \
@@ -186,12 +98,9 @@ jobs:
               case "$status" in
                 healthy) echo healthy; return 0;;
                 unhealthy|starting|none|"")
-                  # HEALTHCHECK not defined (or container not yet up).
-                  # Fall back to /healthz.
                   if curl -fsS --max-time 2 http://127.0.0.1/healthz >/dev/null 2>&1; then
                     echo "healthz-ok"; return 0
                   fi
-                  # container may not even be running; that's "down"
                   if ! podman container exists neary-gtfs-rt 2>/dev/null; then
                     echo down; return 0
                   fi
@@ -206,11 +115,9 @@ jobs:
               *)                  PREV_HEALTHY=0;;
             esac
 
-            # ---- Backup: snapshot the current image as previous ----
+            # Backup: snapshot the current image as previous-<12hex>.
             # Only when the current container was healthy - never
-            # back up a known-bad image. The backup tag is the
-            # short SHA of the currently-running image so we know
-            # what we're rolling back to.
+            # back up a known-bad image.
             BACKUP_TAG=""
             if [ "$PREV_HEALTHY" = "1" ]; then
               CURRENT_SHA=$(podman inspect localhost/gtfs-rt:latest \
@@ -222,27 +129,20 @@ jobs:
                 LOG "backup created: ${BACKUP_TAG}"
               fi
             else
-              LOG "previous container was not healthy; skipping backup (rolling back to a bad image is worse than failing)"
+              LOG "previous container was not healthy; skipping backup"
             fi
 
-            # ---- Pull the new image ----
+            # Pull the new image, retag locally (the systemd unit
+            # references localhost/gtfs-rt:latest), and restart.
             LOG "pulling ghcr.io/n3ary/gtfs-rt:${TAG}"
             podman pull "ghcr.io/n3ary/gtfs-rt:${TAG}"
-
-            # ---- Retag locally so the systemd unit (which
-            # references localhost/gtfs-rt:latest) picks up the
-            # new image ----
             podman tag "ghcr.io/n3ary/gtfs-rt:${TAG}" localhost/gtfs-rt:latest
-
-            # ---- Restart the systemd unit ----
             LOG "restarting neary-gtfs-rt"
             systemctl restart neary-gtfs-rt
 
-            # ---- Wait for the new container's healthcheck ----
-            # OCI HEALTHCHECK status, with curl /healthz fallback.
-            # 90 s total budget: start-period=10 s in the image
-            # HEALTHCHECK plus 3 retries at 30 s intervals = ~100 s;
-            # 90 s is tight but matches reality on a healthy image.
+            # Wait for the new container to become healthy. 90 s
+            # total budget: start-period=10 s in the image
+            # HEALTHCHECK plus retries at 3 s intervals.
             NEW_HEALTHY=0
             for i in $(seq 1 30); do
               sleep 3
@@ -261,32 +161,27 @@ jobs:
               exit 0
             fi
 
-            # ---- Health check failed ----
             LOG "FAIL: new container did not become healthy in 90 s"
-            LOG "=== last 40 lines of journal ==="
             journalctl -u neary-gtfs-rt -n 40 --no-pager || true
-            LOG "=== podman inspect health state ==="
-            podman inspect neary-gtfs-rt --format '{{json .State.Healthcheck}}' 2>/dev/null || echo "container gone"
 
-            # Rollback if we have a backup AND the backup is
-            # different from the (broken) current image.
+            # Roll back if the pre-check was healthy (so we have
+            # a backup) and the backup is different from the broken
+            # image. The pipeline still exits 1 so the operator
+            # notices.
             if [ -n "$BACKUP_TAG" ]; then
               LOG "rolling back to ${BACKUP_TAG}"
               podman tag "$BACKUP_TAG" localhost/gtfs-rt:latest
               systemctl restart neary-gtfs-rt
               ROLLBACK_DONE=1
-              # Give the rollback 30 s to come up healthy.
               for i in $(seq 1 10); do
                 sleep 3
                 ROLL_STATE=$(PROBE)
                 case "$ROLL_STATE" in
                   healthy|healthz-ok)
                     LOG "rollback ok: state=${ROLL_STATE} after ${i} probes"
-                    LOG "service restored to previous version; pipeline still fails so the operator notices"
                     FAIL "deploy of ${TAG} failed; rolled back to ${BACKUP_TAG}";;
                 esac
               done
-              LOG "rollback also did not become healthy in 30 s"
               FAIL "deploy of ${TAG} failed; rollback to ${BACKUP_TAG} also unhealthy"
             fi
 

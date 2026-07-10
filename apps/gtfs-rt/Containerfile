@@ -3,13 +3,13 @@
 # Multi-stage build for @gtfs/rt. Builder installs the full workspace
 # (with @n3ary/* deps from GH Packages, via the id=npm_token secret)
 # and uses `pnpm deploy --legacy` to produce a self-contained
-# dist/ + flat node_modules/. Runtime stage is just node:24-alpine
-# with the deployed tree, running as the unprivileged `node` user.
+# dist/ + flat node_modules/. Runtime stage is node:24-alpine
+# running the deployed tree as the unprivileged `node` user.
 #
-# Why the size is ~230 MB: Node 24 alpine (~60 MB) + Fastify +
-# protobufjs + pino + the @n3ary/* workspace deps (~100 MB).
-# The issue's 50 MB target needs a static-binary Node build, which
-# is a much bigger detour for marginal savings at this scale.
+# Size is ~230 MB (node:24-alpine + protobufjs + pino + the @n3ary/*
+# workspace deps). Hitting the 50 MB target needs a static-binary
+# Node, which is a much bigger detour for marginal savings at this
+# scale.
 
 # ---------- Stage 1: build ----------
 FROM node:24-alpine AS builder
@@ -20,12 +20,10 @@ WORKDIR /src
 # resolves to the same version CI uses.
 RUN corepack enable
 
-# Build-secret for the @n3ary/* deps on GH Packages. The .npmrc is
-# scoped to this RUN via --mount=type=secret so the token never
-# lands in a layer. The file contents MUST be the token only —
-# `printf "%s" "$NPM_TOKEN" > /tmp/npm_token` — not a full
-# `_authToken=...` line; otherwise the printf concatenates the line
-# to itself and pnpm 401s.
+# Build-secret for the @n3ary/* deps on GH Packages. --mount=type=secret
+# keeps the token out of the image layers and out of build history.
+# The mounted file MUST contain the bare token (no _authToken= prefix);
+# the printf below interpolates it into a workspace-scoped .npmrc.
 RUN --mount=type=secret,id=npm_token \
     test -f /run/secrets/npm_token && \
     printf '@n3ary:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' \
@@ -38,10 +36,8 @@ COPY libs/ ./libs/
 COPY apps/gtfs-rt/ ./apps/gtfs-rt/
 COPY apps/gtfs-static/ ./apps/gtfs-static/
 
-# --frozen-lockfile: keep install deterministic. --trust-lockfile:
-# match the workspace's trustPolicy for pnpm 11.5 inside a fresh
-# container (the lockfile is source-tree, reviewed in PR, hashes
-# trusted without re-verifying against the live registry).
+# --trust-lockfile matches the workspace trustPolicy for pnpm 11.5 inside
+# a fresh container; the lockfile is source-tree (reviewed per PR).
 RUN pnpm install --frozen-lockfile --trust-lockfile \
   --filter @n3ary/gtfs-spec... --filter @gtfs/rt...
 RUN pnpm --filter @n3ary/gtfs-spec build

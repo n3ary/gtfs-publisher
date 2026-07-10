@@ -1,19 +1,9 @@
 name: Build ghcr.io/n3ary/gtfs-rt
 
-# Builds apps/gtfs-rt/Containerfile and pushes the resulting image to
-# GHCR. Tag scheme:
-#   latest                 - main branch HEAD
-#   sha-<12-hex>           - immutable, traceable to a commit
-#   <semver>               - when a release tag is pushed (gtfs-rt-v1.0.0)
-#
-# Required secrets:
-#   GHCR_TOKEN       - github PAT with packages:write scope for n3ary org.
-#                      CI's default GITHUB_TOKEN does NOT inherit the
-#                      packages:write permission on the n3ary org, so a
-#                      PAT has to be wired in.
-#   NPM_TOKEN        - GH Packages token for the @n3ary/* workspace deps
-#                      (cluj adapter). Already used by daily.yml; reuse
-#                      the same secret.
+# Requires: GHCR_TOKEN (packages:write for n3ary org), NPM_TOKEN
+# (GH Packages, already used by daily.yml).
+# amd64 only. arm64 needs docker/setup-qemu-action; add it before
+# the build step when a CAX (arm64) migration becomes real.
 
 on:
   push:
@@ -36,107 +26,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: Materialise npm_token for buildah --secret
-        # The Containerfile uses BuildKit-style
-        # `RUN --mount=type=secret,id=npm_token` to authenticate
-        # the @n3ary/* deps on GH Packages. buildah supports the
-        # same flag (--secret id=ID,src=path), but the redhat-actions
-        # buildah-build action exposes it through `extra-args:`
-        # rather than a top-level input. The secret has to live on
-        # disk first because buildah's --secret reads from a file,
-        # not from an env var. The Containerfile's own comment
-        # explains why the file contents must be the bare token
-        # (no _authToken= prefix).
+      - name: Login to GHCR
+        # Org-scoped push needs GHCR_TOKEN (packages:write on n3ary);
+        # the runner's default GITHUB_TOKEN is bound to the runner's
+        # repo, so a PAT is required.
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ciotlosm
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        # secret-envs maps a runner-side env var to a BuildKit
+        # secret mount at /run/secrets/<id> for the Containerfile's
+        # RUN --mount=type=secret,id=npm_token. The token never
+        # lands in a layer.
+        uses: docker/build-push-action@v6
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/buildah-secrets
-          printf '%s' "$NPM_TOKEN" > /tmp/buildah-secrets/npm_token
-          # 0400 so the file is readable only by the runner user
-          # that buildah spawns the RUN steps under.
-          chmod 0400 /tmp/buildah-secrets/npm_token
-
-      - name: Build with buildah
-        # redhat-actions/buildah-build is the canonical GH Action
-        # for rootless buildah on GH-hosted runners. We pin to
-        # the latest v2 minor (v2.13, "Update action to run on
-        # Node 20") because the v1 + Node 16 runtime is end-of-life.
-        # The build lands in local containers-storage; the next
-        # step pushes from there to ghcr.io with the org-scoped
-        # GHCR_TOKEN (the runner's default GITHUB_TOKEN is bound
-        # to the runner's repo, not the n3ary org, so it cannot
-        # land the image at ghcr.io/n3ary/).
-        id: build
-        uses: redhat-actions/buildah-build@v2
         with:
-          containerfiles: apps/gtfs-rt/Containerfile
           context: .
-          # amd64 only. The live VM is Hetzner CX23 (amd64).
-          # arm64 was originally listed for future CAX instances
-          # but the redhat-actions/buildah-build action does NOT
-          # auto-register qemu-binfmt, so adding `linux/arm64`
-          # here triggers an `Exec format error` on the first
-          # RUN step (corepack enable). When a CAX migration
-          # becomes real, add a `docker/setup-qemu-action@v3`
-          # step above this one and re-add `linux/arm64`.
+          file: apps/gtfs-rt/Containerfile
+          push: true
           platforms: linux/amd64
-          # --secret id=...,src=... is buildah's CLI shape, matching
-          # the Containerfile's `RUN --mount=type=secret,id=npm_token`.
-          # Each arg on its own line; the action's exec layer
-          # handles quoting.
-          extra-args: |
-            --secret id=npm_token,src=/tmp/buildah-secrets/npm_token
-          # Don't push from this step - the org-scoped push
-          # happens in the next step using GHCR_TOKEN.
-          push: false
-          # Tag the local containers-storage image with the full
-          # 40-char git SHA. The next step ("Push with GHCR_TOKEN")
-          # slices the first 12 chars via shell `${GITHUB_SHA::12}`
-          # for the :sha-<12hex> label it pushes. Using the full
-          # SHA here avoids a GH Actions expression that's been
-          # tripping the workflow-file validator (a `|` inside
-          # a `${{ ... }}` value interacts badly with the YAML
-          # flow-mapping parser even after single-quoting).
-          tags: 'ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha }}'
-      - name: Push with GHCR_TOKEN
-        # The buildah-build step above built the image into local
-        # containers-storage, tagged with the full 40-char SHA.
-        # We push from there to ghcr.io using GHCR_TOKEN (which
-        # is org-scoped: packages:write on n3ary) rather than
-        # the runner's default GITHUB_TOKEN (which is bound to
-        # the runner's repo, not the n3ary org). Source is the
-        # action's `image-with-tag` output - whatever reference
-        # format the buildah-build action uses internally, it is
-        # guaranteed to round-trip through `buildah push`. We
-        # skip the `buildah tag` step entirely; `buildah push`
-        # accepts a `source` and a `destination` directly, and
-        # letting buildah-build own the source reference avoids
-        # the multi-segment "containers-storage:host/path:tag"
-        # format that `buildah tag` rejects as an invalid
-        # reference. Destination carries the 12-char slice and
-        # the :latest alias.
-        env:
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        run: |
-          set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA::12}"
-          for tag in "sha-${SHORT_SHA}" "latest"; do
-            echo "pushing ghcr.io/n3ary/gtfs-rt:${tag}"
-            buildah push \
-              --creds "ciotlosm:${GHCR_TOKEN}" \
-              "${{ steps.build.outputs.image-with-tag }}" \
-              "docker://ghcr.io/n3ary/gtfs-rt:${tag}"
-          done
+          tags: |
+            ghcr.io/n3ary/gtfs-rt:sha-${{ github.sha }}
+            ghcr.io/n3ary/gtfs-rt:latest
+          secret-envs: |
+            npm_token=NPM_TOKEN
+
       - name: Summarise
         run: |
-          SHORT_SHA="${GITHUB_SHA::12}"
           echo "## gtfs-rt build summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- tags pushed:" >> "$GITHUB_STEP_SUMMARY"
-          echo "  - \`ghcr.io/n3ary/gtfs-rt:sha-${SHORT_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "  - \`ghcr.io/n3ary/gtfs-rt:sha-${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  - \`ghcr.io/n3ary/gtfs-rt:latest\`" >> "$GITHUB_STEP_SUMMARY"
