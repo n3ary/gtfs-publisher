@@ -408,8 +408,19 @@ jobs:
           done
 
       - name: Trigger deploy job on the new VM
-        # Ensures the new VM has the latest image - the install.sh
-        # runs against whatever :latest was at provision time.
+        # Best-effort refresh of the new VM's image - the install.sh
+        # bootstrap already pulled :latest at provision time, so
+        # this is only useful if a NEW image was pushed between
+        # bootstrap and this step. In that case the new VM is
+        # already running the previous :latest and will pick up
+        # the new one on its next deploy. Marked continue-on-error
+        # because the default ${{ secrets.GITHUB_TOKEN }} can't
+        # dispatch other workflows (HTTP 403: Resource not
+        # accessible by integration) - this is a known GH
+        # limitation, not a bug in this workflow. When the token
+        # is upgraded to a PAT with `workflow` scope, drop the
+        # continue-on-error flag.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
