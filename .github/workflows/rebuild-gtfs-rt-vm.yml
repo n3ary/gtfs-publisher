@@ -214,6 +214,16 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 10m
+          # GHCR_TOKEN has to be available to the script so the
+          # podman login (below) can authenticate against
+          # ghcr.io/n3ary/gtfs-rt. We login BEFORE install.sh so
+          # the first systemd-driven podman pull (inside ExecStart)
+          # is authenticated - install.sh's internal login happens
+          # AFTER `systemctl enable --now`, which would otherwise
+          # leave the first pull 401-ing and the unit restart-
+          # looping until the login catches up.
+          env:
+            GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           script: |
             set -euo pipefail
             mkdir -p /opt/neary-bootstrap
@@ -225,6 +235,12 @@ jobs:
               curl -fsSL "$BASE/$f" -o "$f"
             done
             chmod +x install.sh neary-gtfs-rt-healthcheck.sh
+            # Pre-login for ghcr.io (systemd unit pulls on first
+            # start; without auth, the first pull 401s and the unit
+            # restart-loops until install.sh's internal login catches
+            # up - racy and slow). install.sh still has its own
+            # login for the case where someone runs it manually.
+            echo "${GHCR_TOKEN}" | podman login ghcr.io -u ciotlosm --password-stdin >/dev/null
             bash install.sh
 
             # Wait for /healthz to come up on the new VM. The
