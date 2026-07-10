@@ -82,6 +82,16 @@ jobs:
 
             LOG "deploying ghcr.io/n3ary/gtfs-rt:${TAG} to $(hostname) ($(hostname -i))"
 
+            # Flush stale podman DNAT rules before touching containers.
+            # podman rm -f doesn't always clean 'nv_*_dnat' chains;
+            # rules from dead container IPs accumulate across cycles on
+            # a single VM, and the chain's first-match DNAT then points
+            # at a dead IP - so curl http://127.0.0.1/healthz times out
+            # even when the new container is healthy inside its netns.
+            # `nft delete` is idempotent; podman/netavark rebuilds the
+            # table on the next container creation.
+            nft delete table inet netavark 2>/dev/null || true
+
             # Log in to ghcr.io so podman can pull.
             if [ -n "${GHCR_TOKEN:-}" ]; then
               echo "${GHCR_TOKEN}" | podman login ghcr.io -u ciotlosm --password-stdin >/dev/null
