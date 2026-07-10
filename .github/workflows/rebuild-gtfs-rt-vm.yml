@@ -187,7 +187,7 @@ jobs:
           exit 1
 
       - name: Run install.sh on the new VM
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ steps.create.outputs.ip }}
           username: root
