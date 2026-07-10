@@ -32,7 +32,7 @@ jobs:
         # Org-scoped push needs GHCR_TOKEN (packages:write on n3ary);
         # the runner's default GITHUB_TOKEN is bound to the runner's
         # repo, so a PAT is required.
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ciotlosm
