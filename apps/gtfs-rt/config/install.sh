@@ -57,16 +57,26 @@ install -m 0644 "$CONFIG_DIR/neary-gtfs-rt-healthcheck.timer" "$HEALTHCHECK_TIME
 
 systemctl daemon-reload
 
-# Pre-login so the first podman pull inside ExecStart doesn't 401.
-# MUST happen BEFORE `systemctl enable --now $SERVICE_NAME` - the
-# unit's ExecStart pulls ghcr.io/n3ary/gtfs-rt:latest on first
-# start, and without auth the pull 401s and the unit restart-loops
-# until the login catches up. The pre-PR-#153 ordering had this
-# block AFTER `systemctl enable --now`, which is the classic race.
-# Uses GHCR_TOKEN / GHCR_USER to match the names in
-# deploy-gtfs-rt.yml so the same secret + the same credentials
-# work in both flows.
+# Pre-login + pull + local-tag, in that order. The unit's
+# ExecStart runs `localhost/gtfs-rt:latest` (not
+# ghcr.io/.../latest), so the pull happens here, once, and the
+# unit is then self-contained - it never has to do a runtime
+# pull from ghcr.io on every restart. This matches what
+# deploy-gtfs-rt.yml does on the live VM, so the rebuild and
+# deploy flows have the same local-tag contract.
+#
+# Pre-PR-#156 ordering only did the login. The unit's old
+# ExecStart referenced ghcr.io/.../latest directly, which
+# required the unit to do a runtime pull on every fresh start.
+# The pull kept 401-ing on freshly-provisioned rebuild-VM runs
+# even with auth in place, presumably because podman's auth.json
+# resolution for a brand-new image pull + a brand-new container
+# netns was racy vs the systemd unit's start timer. The pull +
+# local-tag pattern is what the live VM ended up using after
+# the first deploy-gtfs-rt run patched the unit on disk.
 [ -n "${GHCR_TOKEN:-}" ] && echo "$GHCR_TOKEN" | podman login ghcr.io -u "${GHCR_USER:-ciotlosm}" --password-stdin
+podman pull ghcr.io/n3ary/gtfs-rt:latest
+podman tag ghcr.io/n3ary/gtfs-rt:latest localhost/gtfs-rt:latest
 
 systemctl enable --now "$SERVICE_NAME"
 systemctl enable --now neary-gtfs-rt-healthcheck.timer

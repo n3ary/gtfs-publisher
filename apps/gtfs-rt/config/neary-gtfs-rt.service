@@ -29,7 +29,14 @@ ExecStart=/usr/bin/podman run \
   --log-driver journald \
   --label io.github.n3ary.component=gtfs-rt \
   --label org.opencontainers.image.source=https://github.com/n3ary/gtfs-publisher \
-  ghcr.io/n3ary/gtfs-rt:latest
+  # The image is pulled by install.sh and re-tagged to
+  # localhost/gtfs-rt:latest - the same name deploy-gtfs-rt.yml
+  # uses. This way the rebuild-VM and the deploy-VM flows both
+  # expect the same local tag, and the unit never needs to do a
+  # runtime pull from ghcr.io (which would re-trigger the auth /
+  # rate-limit / network-flake failure modes every time the unit
+  # restarts on the freshly-provisioned VM).
+  localhost/gtfs-rt:latest
 
 ExecStop=/usr/bin/podman stop --time 10 neary-gtfs-rt
 ExecStopPost=-/usr/bin/podman rm -f neary-gtfs-rt
