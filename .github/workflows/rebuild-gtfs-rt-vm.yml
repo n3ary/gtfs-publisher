@@ -222,8 +222,15 @@ jobs:
           # AFTER `systemctl enable --now`, which would otherwise
           # leave the first pull 401-ing and the unit restart-
           # looping until the login catches up.
-          env:
-            GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          #
+          # `envs` (plural, comma-separated KEY=VALUE pairs) is the
+          # appleboy/ssh-action input that exports vars to the
+          # remote SSH session. `env` at the with: level is NOT a
+          # valid input on this action - it triggers a YAML parse
+          # error from the workflow_dispatch endpoint. Workflow-
+          # level `env:` would set vars on the runner, not the
+          # remote.
+          envs: GHCR_TOKEN=${{ secrets.GHCR_TOKEN }}
           script: |
             set -euo pipefail
             mkdir -p /opt/neary-bootstrap
