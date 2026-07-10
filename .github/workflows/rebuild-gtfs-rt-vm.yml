@@ -81,6 +81,53 @@ jobs:
           mv /tmp/hcloud /usr/local/bin/hcloud
           hcloud version
 
+      - name: Cleanup rogue VMs from previous runs
+        # A previous rebuild that failed mid-way (timeout, network
+        # glitch, or a bug) may have left a VM behind - created,
+        # maybe bootstrapped, but with the DNS A record never
+        # swapped. The role=gtfs-rt label is also wrong on those,
+        # so the find-active step below would pick the wrong one.
+        # Source of truth for "live" is the Cloudflare A record,
+        # not the label. Delete any gtfs-rt-nbg1-* VM whose primary
+        # IPv4 does not match the live IP.
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          RECORD_ID: ${{ vars.CLOUDFLARE_GTFS_RT_A_RECORD_ID }}
+        run: |
+          set -euo pipefail
+          : "${ZONE_ID:?CLOUDFLARE_ZONE_ID repo variable is required}"
+          : "${RECORD_ID:?CLOUDFLARE_GTFS_RT_A_RECORD_ID repo variable is required}"
+
+          LIVE_IP=$(curl -fsS \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | jq -r '.result.content')
+          if [ -z "$LIVE_IP" ] || [ "$LIVE_IP" = "null" ]; then
+            echo "::error::CF API returned no IP for the gtfs-rt A record; aborting"
+            exit 1
+          fi
+          echo "live IP from CF A record: ${LIVE_IP}"
+
+          # Any gtfs-rt-nbg1-* VM whose IPv4 is not the live IP is
+          # a rogue. Hetzner reserves deleted names for ~1 h, so a
+          # previous run's orphan blocks the next-name logic - this
+          # also lets the next-name step pick a fresh integer.
+          ROGUE_IDS=$(hcloud server list -o json | jq -r --arg live "$LIVE_IP" \
+            '[.[] | select(.name | startswith("gtfs-rt-nbg1-")) | select(.public_net.ipv4.ip != $live) | .id] | .[]')
+          if [ -z "$ROGUE_IDS" ]; then
+            echo "no rogue VMs to clean up"
+            exit 0
+          fi
+          for id in $ROGUE_IDS; do
+            name=$(hcloud server describe "$id" -o json | jq -r '.name')
+            ip=$(hcloud server describe "$id" -o json | jq -r '.public_net.ipv4.ip')
+            echo "deleting rogue VM: ${name} (id=${id}, ip=${ip}, live_ip=${LIVE_IP})"
+            hcloud server delete "$id"
+          done
+
       - name: Find the currently-active VM
         id: find-active
         env:
@@ -292,6 +339,49 @@ jobs:
           echo "deleting old VM ${ACTIVE_ID}"
           hcloud server delete "${ACTIVE_ID}"
           echo "old VM ${ACTIVE_ID} deleted"
+
+      - name: Cleanup any rogue VMs left behind by this run
+        # The new VM is only "live" once the DNS A record points
+        # at its primary IPv4. If the workflow exited before the
+        # swap step ran (or the swap failed), the new VM is an
+        # orphan and must be deleted so it does not pollute the
+        # next run. The old VM gets re-checked here too: if the
+        # "Delete the old VM" step failed for any reason, this
+        # sweep removes the leftover.
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          RECORD_ID: ${{ vars.CLOUDFLARE_GTFS_RT_A_RECORD_ID }}
+        run: |
+          set -euo pipefail
+          : "${ZONE_ID:?CLOUDFLARE_ZONE_ID repo variable is required}"
+          : "${RECORD_ID:?CLOUDFLARE_GTFS_RT_A_RECORD_ID repo variable is required}"
+
+          LIVE_IP=$(curl -fsS \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | jq -r '.result.content')
+          if [ -z "$LIVE_IP" ] || [ "$LIVE_IP" = "null" ]; then
+            echo "warn: CF API returned no IP for the gtfs-rt A record; skipping sweep"
+            exit 0
+          fi
+          echo "live IP from CF A record: ${LIVE_IP}"
+
+          ROGUE_IDS=$(hcloud server list -o json | jq -r --arg live "$LIVE_IP" \
+            '[.[] | select(.name | startswith("gtfs-rt-nbg1-")) | select(.public_net.ipv4.ip != $live) | .id] | .[]')
+          if [ -z "$ROGUE_IDS" ]; then
+            echo "no rogue VMs to clean up"
+            exit 0
+          fi
+          for id in $ROGUE_IDS; do
+            name=$(hcloud server describe "$id" -o json | jq -r '.name')
+            ip=$(hcloud server describe "$id" -o json | jq -r '.public_net.ipv4.ip')
+            echo "deleting rogue VM left by this run: ${name} (id=${id}, ip=${ip}, live_ip=${LIVE_IP})"
+            hcloud server delete "$id"
+          done
 
       - name: Trigger deploy job on the new VM
         # Ensures the new VM has the latest image - the install.sh

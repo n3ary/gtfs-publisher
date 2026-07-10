@@ -80,11 +80,27 @@ if command -v unattended-upgrade >/dev/null 2>&1; then
   dpkg-reconfigure -f noninteractive --priority=medium unattended-upgrades 2>/dev/null || true
 fi
 
-sleep 5
-curl -sSf http://127.0.0.1/healthz >/dev/null \
-  && echo "ok: /healthz responded on 127.0.0.1:80" \
-  || { echo "warn: /healthz did not respond yet (the unit is still pulling/starting);"
-       echo "       check 'journalctl -u $SERVICE_NAME -n 50'"; }
+# Wait for the unit to actually be healthy. The unit pulls
+# ghcr.io/n3ary/gtfs-rt on first start, which can take 1-3 min
+# on a slow connection, so the bootstrap call that fires
+# straight after `systemctl enable --now` is meaningless. Poll up
+# to 5 minutes. If the unit never becomes healthy, exit 1 - this
+# is a real bootstrap failure and the operator should hear about
+# it, not have to read a journal to find out.
+HEALTH_OK=0
+for i in $(seq 1 60); do
+  if curl -fsS --max-time 2 http://127.0.0.1/healthz >/dev/null 2>&1; then
+    echo "ok: /healthz 200 on 127.0.0.1:80 after ${i} attempts"
+    HEALTH_OK=1
+    break
+  fi
+  sleep 5
+done
+if [ "$HEALTH_OK" = "0" ]; then
+  echo "::error::neary-gtfs-rt unit did not become healthy within 5 minutes"
+  echo "::error::check 'journalctl -u $SERVICE_NAME -n 50' for the failure"
+  exit 1
+fi
 
 echo
 echo "next steps:"
