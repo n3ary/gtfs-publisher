@@ -5,8 +5,22 @@
 
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-CONFIG_DIR="$REPO_ROOT/apps/gtfs-rt/config"
+# install.sh can run two ways:
+#   1. from inside a clone of the repo (REPO_ROOT exported) - the
+#      config files are in $REPO_ROOT/apps/gtfs-rt/config
+#   2. as a standalone bundle: this script + the systemd unit + the
+#      healthcheck files + rt.env.example, all in the same directory,
+#      dropped onto a fresh VM by the rebuild-gtfs-rt-vm workflow
+#      via `curl .../config/{file}` (PR #149). The 3-level-up
+#      heuristic that the original script used here resolves to the
+#      filesystem root in that case, and the config-file preflight
+#      checks fail. When REPO_ROOT is unset, fall back to the
+#      script's own directory.
+if [ -n "${REPO_ROOT:-}" ]; then
+  CONFIG_DIR="$REPO_ROOT/apps/gtfs-rt/config"
+else
+  CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 SYSTEMD_DIR="/etc/systemd/system"
 ENV_DIR="/etc/neary-gtfs"
 ENV_FILE="$ENV_DIR/rt.env"
