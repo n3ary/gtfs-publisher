@@ -98,7 +98,16 @@ for i in $(seq 1 60); do
 done
 if [ "$HEALTH_OK" = "0" ]; then
   echo "::error::neary-gtfs-rt unit did not become healthy within 5 minutes"
-  echo "::error::check 'journalctl -u $SERVICE_NAME -n 50' for the failure"
+  # Print the actual root cause from the systemd journal. The poll
+  # above is silent on the happy path, so on failure the operator
+  # is otherwise left guessing why the unit never came up. Dumping
+  # the last 100 journal lines into the GH log makes the error
+  # self-diagnosing - the operator does NOT need to SSH in to
+  # see whether the pull 401-ed, the container OOM-ed, the
+  # healthcheck failed, etc.
+  echo "::error::--- journalctl -u $SERVICE_NAME -n 100 --no-pager ---"
+  journalctl -u "$SERVICE_NAME" -n 100 --no-pager || true
+  echo "::error::--- end of journal ---"
   exit 1
 fi
 
