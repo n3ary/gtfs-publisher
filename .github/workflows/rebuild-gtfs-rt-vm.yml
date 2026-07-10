@@ -200,23 +200,14 @@ jobs:
           echo "fail: SSH never came up on ${NEW_IP}"
           exit 1
 
-      - name: Run install.sh on the new VM
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ steps.create.outputs.ip }}
-          username: root
-          key: ${{ secrets.HETZNER_SSH_KEY }}
-          # comma-separated list of files (no brace expansion -
-          # drone-scp v0.1.7 passes the source verbatim to tar, so
-          # bash-only brace expansion ends up as a literal filename
-          # that doesn't exist, and tar errors with "cowardly
-          # refusing to create an empty archive"). appleboy/scp-
-          # action's README confirms comma is the multi-source
-          # separator.
-          source: 'apps/gtfs-rt/config/install.sh,apps/gtfs-rt/config/neary-gtfs-rt.service,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.sh,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.service,apps/gtfs-rt/config/neary-gtfs-rt-healthcheck.timer,apps/gtfs-rt/config/rt.env.example'
-          target: /tmp/neary-install
-
       - name: Bootstrap new VM
+        # Replaces the previous two-step shape (appleboy/scp-action
+        # to copy install.sh + the systemd files, then a separate
+        # appleboy/ssh-action to run install.sh). One SSH round-trip,
+        # one action, files pulled via curl from raw.githubusercontent.com
+        # pinned to the same commit SHA that triggered the rebuild -
+        # so a future install.sh change can't be picked up by an
+        # in-flight rebuild that started before the change landed.
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ steps.create.outputs.ip }}
@@ -226,8 +217,14 @@ jobs:
           script: |
             set -euo pipefail
             mkdir -p /opt/neary-bootstrap
-            cp /tmp/neary-install/* /opt/neary-bootstrap/
             cd /opt/neary-bootstrap
+            BASE="https://raw.githubusercontent.com/n3ary/gtfs-publisher/${{ github.sha }}/apps/gtfs-rt/config"
+            for f in install.sh neary-gtfs-rt.service neary-gtfs-rt-healthcheck.sh \
+                     neary-gtfs-rt-healthcheck.service neary-gtfs-rt-healthcheck.timer \
+                     rt.env.example; do
+              curl -fsSL "$BASE/$f" -o "$f"
+            done
+            chmod +x install.sh neary-gtfs-rt-healthcheck.sh
             bash install.sh
 
             # Wait for /healthz to come up on the new VM. The
