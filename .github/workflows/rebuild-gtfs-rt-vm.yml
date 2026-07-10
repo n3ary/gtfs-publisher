@@ -214,23 +214,20 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 10m
-          # GHCR_TOKEN has to be available to the script so the
-          # podman login (below) can authenticate against
-          # ghcr.io/n3ary/gtfs-rt. We login BEFORE install.sh so
-          # the first systemd-driven podman pull (inside ExecStart)
-          # is authenticated - install.sh's internal login happens
-          # AFTER `systemctl enable --now`, which would otherwise
-          # leave the first pull 401-ing and the unit restart-
-          # looping until the login catches up.
+          # GHCR_TOKEN + GHCR_USER are exported to the remote SSH
+          # session so install.sh's `podman login ghcr.io ...` line
+          # can authenticate before it does `systemctl enable --now`
+          # on the unit (which would otherwise trigger the first
+          # podman pull before login completes, 401-ing and
+          # restart-looping). install.sh has the login logic - this
+          # step just provides the env vars it needs.
           #
           # `envs` (plural, comma-separated KEY=VALUE pairs) is the
           # appleboy/ssh-action input that exports vars to the
           # remote SSH session. `env` at the with: level is NOT a
           # valid input on this action - it triggers a YAML parse
-          # error from the workflow_dispatch endpoint. Workflow-
-          # level `env:` would set vars on the runner, not the
-          # remote.
-          envs: GHCR_TOKEN=${{ secrets.GHCR_TOKEN }}
+          # error from the workflow_dispatch endpoint.
+          envs: GHCR_TOKEN=${{ secrets.GHCR_TOKEN }},GHCR_USER=ciotlosm
           script: |
             set -euo pipefail
             mkdir -p /opt/neary-bootstrap
@@ -242,12 +239,6 @@ jobs:
               curl -fsSL "$BASE/$f" -o "$f"
             done
             chmod +x install.sh neary-gtfs-rt-healthcheck.sh
-            # Pre-login for ghcr.io (systemd unit pulls on first
-            # start; without auth, the first pull 401s and the unit
-            # restart-loops until install.sh's internal login catches
-            # up - racy and slow). install.sh still has its own
-            # login for the case where someone runs it manually.
-            echo "${GHCR_TOKEN}" | podman login ghcr.io -u ciotlosm --password-stdin >/dev/null
             bash install.sh
 
             # Wait for /healthz to come up on the new VM. The

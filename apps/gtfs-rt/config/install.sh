@@ -56,11 +56,20 @@ install -m 0644 "$CONFIG_DIR/neary-gtfs-rt-healthcheck.service" "$HEALTHCHECK_SE
 install -m 0644 "$CONFIG_DIR/neary-gtfs-rt-healthcheck.timer" "$HEALTHCHECK_TIMER"
 
 systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
-systemctl enable --now neary-gtfs-rt-healthcheck.timer
 
 # Pre-login so the first podman pull inside ExecStart doesn't 401.
-[ -n "${GITHUB_TOKEN:-}" ] && echo "$GITHUB_TOKEN" | podman login ghcr.io -u "${GITHUB_USER:-n3ary-ci}" --password-stdin
+# MUST happen BEFORE `systemctl enable --now $SERVICE_NAME` - the
+# unit's ExecStart pulls ghcr.io/n3ary/gtfs-rt:latest on first
+# start, and without auth the pull 401s and the unit restart-loops
+# until the login catches up. The pre-PR-#153 ordering had this
+# block AFTER `systemctl enable --now`, which is the classic race.
+# Uses GHCR_TOKEN / GHCR_USER to match the names in
+# deploy-gtfs-rt.yml so the same secret + the same credentials
+# work in both flows.
+[ -n "${GHCR_TOKEN:-}" ] && echo "$GHCR_TOKEN" | podman login ghcr.io -u "${GHCR_USER:-ciotlosm}" --password-stdin
+
+systemctl enable --now "$SERVICE_NAME"
+systemctl enable --now neary-gtfs-rt-healthcheck.timer
 
 # Make sure unattended security updates are on. The host doesn't
 # have many packages, but unattended-upgrades catches the podman /
