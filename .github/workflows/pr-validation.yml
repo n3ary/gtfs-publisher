@@ -51,7 +51,7 @@ jobs:
         # re-verification can reject fresh publishes within 24h of
         # their release; we don't need that since the lockfile is
         # source-tree and goes through PR review.
-        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v14
+        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v22
         with:
           auth-token: ${{ secrets.NPM_TOKEN }}
 
@@ -132,7 +132,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-bump version to main + 1
-        uses: n3ary/actions/.github/actions/version-bump@v12
+        uses: n3ary/actions/.github/actions/version-bump@v22
         with:
           # Skip the bump when the PR touches only docs/, .github/,
           # .gitignore, or LICENSE. (default already covers .github/,
