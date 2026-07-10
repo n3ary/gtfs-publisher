@@ -33,11 +33,11 @@ name: Rebuild gtfs-rt VM
 #                               variable below.
 #   Variables (Settings > Variables > Actions; visible to repo
 #   readers, used for public config that may differ per env):
-#     HETZNER_SSH_PUBLIC_KEY  - PUBLIC half of the same key, used to
-#                               compute the fingerprint that Hetzner's
-#                               `--ssh-key` flag accepts. The public
-#                               half is not sensitive - it's stored in
-#                               the Hetzner project as well.
+#     HETZNER_SSH_PUBLIC_KEY  - PUBLIC half of the same key, kept for
+#                               audit; the actual `--ssh-key` argument
+#                               uses the key's name (HETZNER_SSH_KEY_NAME
+#                               or the default 'github-actions-deploy-gtfs-rt')
+#                               because hcloud rejects fingerprint forms.
 #     CLOUDFLARE_ZONE_ID      - n3ary.com zone id.
 #     CLOUDFLARE_GTFS_RT_A_RECORD_ID - gtfs-rt.n3ary.com A record id.
 #   Hardcoded in the workflow:
@@ -135,25 +135,39 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           NEW_NAME: ${{ steps.next-name.outputs.name }}
-          SSH_PUBLIC_KEY: ${{ vars.HETZNER_SSH_PUBLIC_KEY }}
+          SSH_KEY_NAME: ${{ vars.HETZNER_SSH_KEY_NAME }}
         run: |
           set -euo pipefail
           FIREWALL="neary-gtfs-rt-01-edge-only"
 
-          # The SSH key has to already be registered at the project
-          # level (Hetzner Cloud Console > Project > Security > SSH
-          # keys). We pass --ssh-key with the fingerprint of the
-          # public key; hcloud looks the key up by fingerprint and
-          # injects it into /root/.ssh/authorized_keys on first boot.
-          KEY_FP=$(ssh-keygen -lf <(printf '%s\n' "$SSH_PUBLIC_KEY") | awk '{print $2}')
+          # hcloud server create --ssh-key accepts the key's name
+          # (or id), not its fingerprint. Earlier versions of this
+          # workflow computed the fingerprint via `ssh-keygen -lf`
+          # and passed it to --ssh-key; hcloud rejected both the
+          # SHA256 and MD5 forms with "SSH key not found", even
+          # though the key was registered. The fix is to pass the
+          # name directly. The key has to already be registered
+          # at the Hetzner project level (Project > Security > SSH
+          # keys) under the same name; hcloud looks the key up by
+          # name and injects it into /root/.ssh/authorized_keys on
+          # first boot.
+          #
+          # HETZNER_SSH_KEY_NAME is required (no fallback) - a
+          # silent default would mask operator mistakes and let
+          # the workflow create a VM with whatever key happens to
+          # match a hardcoded name. Fail loud instead.
+          if [ -z "${SSH_KEY_NAME:-}" ]; then
+            echo "::error::HETZNER_SSH_KEY_NAME repo variable is required; set it to the registered Hetzner SSH key name (currently 'github-actions-deploy-gtfs-rt')."
+            exit 1
+          fi
 
-          echo "creating ${NEW_NAME} (firewall=${FIREWALL}, ssh-key fp=${KEY_FP})"
+          echo "creating ${NEW_NAME} (firewall=${FIREWALL}, ssh-key name=${SSH_KEY_NAME})"
           CREATE_OUT=$(hcloud server create \
             --name "${NEW_NAME}" \
             --type cx23 \
             --location nbg1 \
             --image ubuntu-26.04 \
-            --ssh-key "${KEY_FP}" \
+            --ssh-key "${SSH_KEY_NAME}" \
             --label "role=gtfs-rt" \
             --label "created-by=rebuild-gtfs-rt-vm" \
             --label "rebuild-reason=${{ inputs.reason || 'manual' }}" \
