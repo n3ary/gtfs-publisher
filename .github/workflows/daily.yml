@@ -40,7 +40,7 @@ jobs:
         # Replaces the previous manual checkout+node+pnpm+HOME-scoped
         # .npmrc+pnpm install. The cluj adapter's `clujStaticExtension`
         # is a published @n3ary/* dep; pnpm reads auth from ~/.npmrc.
-        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v14
+        uses: n3ary/actions/.github/actions/setup-pnpm-gh-packages-auth@v22
         with:
           auth-token: ${{ secrets.NPM_TOKEN }}
 

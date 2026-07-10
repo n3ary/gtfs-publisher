@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       - name: Publish @n3ary/gtfs-spec
-        uses: n3ary/actions/.github/actions/package/publish@v21
+        uses: n3ary/actions/.github/actions/package/publish@v22
         with:
           package-dir: libs/spec
           tag-template: 'libs/spec/v{version}'
