@@ -46,7 +46,7 @@ jobs:
         # secret mount at /run/secrets/<id> for the Containerfile's
         # RUN --mount=type=secret,id=npm_token. The token never
         # lands in a layer.
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
