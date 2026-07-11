@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@43c6fca on 2026-07-11 -->
+<!-- synced from n3ary/standards@4175a47 on 2026-07-11 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Org automation: the release bot
@@ -37,9 +37,9 @@ The bot is a Cloudflare Worker. Source: `n3ary/release-bot/src/`. Deploy: `wrang
 
 - **Bump on the PR branch.** The PR branch is the dev's; the bot has no business there. The whole point of the bot is the bump happens on `main`, not on the PR.
 - **Bump on a tag, on a schedule, or on `push` to `main` directly.** Those are anti-patterns. See [version-management.md](version-management.md).
-- **Open a Release PR.** The bot pushes the bump commit directly to `main`. No human review of the version itself, because the version is mechanically derived from the merge timestamp — there's nothing to review.
+- **Bypass the review / checks path.** The version-bump PR goes through the normal review + status-checks path with the bot acting as a contributor. No org-level bypass-actor rule, no admin override, no direct-push privilege. The audit trail is the same as any other contributor PR.
 - **Publish to npm, push a container image, or deploy.** Those are per-consumer workflows with repo-specific secrets. The bot is version-management only.
-- **Resolve merge conflicts.** If the bot's push fails (e.g. main advanced under it), the bot retries with the latest `main` and re-computes. Bounded retries; after N failures it surfaces an alert.
+- **Resolve merge conflicts.** If the bot's commit fails (e.g. the branch ref was updated by a concurrent run), the bot retries with the latest state. Bounded retries; after N failures it surfaces an alert.
 
 ## Where it lives
 
@@ -50,15 +50,19 @@ n3ary/release-bot/
 │   ├── index.ts                # Worker entry, route dispatch
 │   ├── webhook.ts              # webhook signature verification, event handling
 │   ├── bump.ts                 # CalVer arithmetic: nextCalVer(current, now, tz)
-│   ├── commit.ts               # discoverAndOpenPR: discover, compute, branch, commit, PR, auto-merge
+│   ├── commit.ts               # discoverAndOpenPR: discover, skip rules, branch, commit, PR, auto-merge
 │   ├── pr.ts                   # createBranch, openPullRequest, enableAutoMerge, findOpenReleasePR
-│   ├── config.ts               # loads env (timezone, app ID, private key, webhook secret)
+│   ├── auth.ts                 # JWT signing + installation token exchange
 │   └── types.ts                # shared types
 ├── test/
-│   └── bump.test.ts            # unit tests for the CalVer logic
+│   ├── bump.test.ts            # CalVer unit tests
+│   ├── commit.test.ts          # per-file idempotency tests (skip rules, isPackageTouched)
+│   └── helpers.ts              # test helpers
 ├── wrangler.toml               # Cloudflare Worker config
+├── pnpm-workspace.yaml         # pnpm 11 allowBuilds: for esbuild + sharp + workerd
 ├── package.json
 ├── tsconfig.json
+├── vitest.config.ts
 ├── .gitignore
 └── README.md                   # install + deploy + on-call runbook
 ```
@@ -73,7 +77,7 @@ The app is registered via a manifest-based flow:
 
 1. Go to `https://github.com/organizations/n3ary/settings/apps/new` (or the equivalent for the org).
 2. Paste the contents of `n3ary/release-bot/app.yml` as the manifest.
-3. Confirm the app's name (`n3ary-release-bot`), webhook URL (the Cloudflare Worker URL), and events (`pull_request`, `push`).
+3. Confirm the app's name (`n3ary-release-bot`), webhook URL (the Cloudflare Worker URL), and the `pull_request` event.
 4. GitHub creates the app and provides an **App ID** and a **private key** (PEM). Download the private key; it does not get shown again.
 
 ### 2. Set the Cloudflare Worker secrets
@@ -155,15 +159,27 @@ Before writing a new version, the bot reads the version at `HEAD~1` of `main` (t
 
 For multi-package repos, the check is per-`package.json` file. A dev who edits `libs/spec/package.json#version` does not affect the root `package.json#version`, so the root still gets its own bump.
 
-### Pushing the commit
+### Committing to the branch
 
-The bot uses the GitHub API (`PUT /repos/{owner}/{repo}/contents/{path}`) to update each `package.json`. The commit is auto-created by the API; the bot sets the commit author to the app's identity (`n3ary-release-bot[bot] <[email protected]>`) and the commit message to `chore(release): <version>`.
+The bot commits the version bump to its own branch (`release/calver-<version>`), not to `main`. The PR + auto-merge is what lands the commit on `main`.
 
-For multi-file bumps, the bot uses the Git Data API (`POST /repos/{owner}/{repo}/git/trees`, then `POST /repos/{owner}/{repo}/git/commits`, then `PATCH /repos/{owner}/{repo}/git/refs/heads/main`) to create a single commit that updates all `package.json` files atomically.
+For each bumped `package.json`:
+
+- **Single-file bump**: `PUT /repos/{owner}/{repo}/contents/{path}` with the new file content. The API auto-creates the commit on the bot's branch.
+- **Multi-file bump**: Git Data API — `POST /repos/{owner}/{repo}/git/blobs` per file, then `POST /repos/{owner}/{repo}/git/trees` (with `base_tree` set to the merge commit's tree and only the changed entries passed), then `POST /repos/{owner}/{repo}/git/commits`, then `PATCH /repos/{owner}/{repo}/git/refs/heads/<branch>` to update the branch ref.
+
+In both cases, the commit author is the app's identity (`n3ary-release-bot[bot] <[email protected]>`) and the commit message is `chore(release): <version>` (single) or `chore(release): <v1>, <v2>, ...` (multi-file, one entry per bumped `package.json`).
+
+The bot does NOT touch `main` directly. The PR + auto-merge is what lands the commit on `main`.
 
 ### Concurrency
 
-Two PRs that merge in quick succession can fire two bot invocations. The Cloudflare Worker is stateless, so there's no built-in mutex. The bot's push is retried on `409 Conflict` (the "update was rejected because the tip of the ref advanced under you" error). On conflict, the bot re-fetches `main`, re-computes, retries. Bounded at 3 retries. After 3 failures, the bot surfaces an alert (TBD: which channel — for now, the Worker logs the failure and the next PR merge re-triggers the bump for the missed one).
+Two PRs that merge in quick succession can fire two bot invocations. The Cloudflare Worker is stateless, so there's no built-in mutex. The bot's idempotency guards are:
+
+- **`createBranch` is idempotent** (`src/pr.ts`): if the branch already exists (e.g. from a previous attempt for the same version), the function returns `"exists"` instead of erroring. The bot continues with the commit step on the existing ref.
+- **`findOpenReleasePR` short-circuits** (`src/pr.ts`): if a previous webhook run already created a `release/calver-*` PR that's still open, the new event no-ops and the existing PR is the one that lands. Surfaced in the log as `Idempotency: open release PR #N already exists; no-op`.
+
+These two guards cover the common races. Transient GitHub API errors (5xx) get a standard bounded retry. After N failures, the Worker logs the failure and the next PR merge re-triggers the bump for the missed one.
 
 ## On-call runbook
 
@@ -186,17 +202,18 @@ When the bot fails:
 
 ## Secret rotation
 
-The bot has three secrets, all stored as Cloudflare Worker secrets:
+The bot has four secrets, all stored as Cloudflare Worker secrets:
 
 - `GITHUB_APP_ID` — the app's numeric ID. Stable; rotate only if the app is recreated.
 - `GITHUB_APP_PRIVATE_KEY` — the app's PEM private key. Rotate annually. The old key remains valid until you remove it from the GH UI; the new key works immediately. No downtime.
 - `GITHUB_WEBHOOK_SECRET` — a strong random string used to sign webhooks. Rotate annually, or immediately if a leak is suspected. To rotate, set a new value via `wrangler secret put`, then update the app's "Webhook secret" in the GH UI to match.
+- `ADMIN_TOKEN` — bearer token for the manual `/test/bump` endpoint (used in the on-call runbook). Rotate annually, or immediately if a leak is suspected.
 
 After rotating any secret, verify with a test PR merge that the bot still fires.
 
 ## What this is NOT
 
-- **Not release-please.** Google's release-please opens a Release PR with a CHANGELOG and a version bump; humans review the Release PR before merge. The n3ary bot pushes the version bump directly to `main` with no human review. The trade-off: less ceremony, no CHANGELOG. CalVer's "date is in the version" is the only human-readable signal needed.
+- **Not release-please.** Google's release-please opens a Release PR with a CHANGELOG and a version bump; humans review the Release PR before merge. The n3ary bot opens a `chore(release): <version>` PR and enables auto-merge — humans don't have to click, but the commit still goes through the same review + status-checks path as any contributor. The trade-off vs. release-please: less ceremony, no CHANGELOG. CalVer's "date is in the version" is the only human-readable signal needed.
 - **Not semantic-release.** semantic-release analyzes commit messages to decide patch/minor/major. The n3ary bot uses CalVer + daily counter, with no commit-message parsing.
 - **Not a generic CI runner.** The bot is version-management only. Builds, tests, deploys, and publishes are per-consumer workflows with repo-specific secrets.
 

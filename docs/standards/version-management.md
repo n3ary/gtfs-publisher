@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@43c6fca on 2026-07-11 -->
+<!-- synced from n3ary/standards@4175a47 on 2026-07-11 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Version management
@@ -13,7 +13,7 @@ Every shipped change to any n3ary repo produces a new version in that repo's `pa
   - The same day, the second release is `26.7.11-2`, the third is `26.7.11-3`, and so on.
   - The next day, the counter resets to `1`: `26.7.12-1`.
 - **Timezone: `Europe/Bucharest`.** The day boundary is midnight in the org's local timezone. This is the only place "today" is defined for the bot.
-- **Bump on merge, by the org-level release bot.** The bot is a GitHub App installed on the n3ary org. On every `pull_request: closed` event with `merged == true`, it pushes a `chore(release): <version>` commit to `main` with the next CalVer version. No per-consumer workflow file references the bot.
+- **Bump on merge, by the org-level release bot.** The bot is a GitHub App installed on the n3ary org. On every `pull_request: closed` event with `merged == true`, it opens a pull request titled `chore(release): <version>` with the version bump on a `release/calver-<version>` branch, and enables auto-merge on the PR. With 0 required reviews (the n3ary branch protection standard), the version lands on `main` as soon as the required status checks pass. No per-consumer workflow file references the bot.
 - **Skip when the merge already changed the version.** If the merge commit's `package.json#version` differs from its parent's, the dev manually edited the version (e.g. for a tagged build, a one-off release, or a backport). The bot's idempotency check sees this and no-ops. The dev's edit wins.
 - **Multi-package repos are handled per `package.json`.** The bot discovers every `package.json` under the repo tree (root, `libs/spec/`, `adapters/*/`, etc.) and bumps each one independently. The `skip-if-already-touched` rule applies per file.
 
@@ -44,13 +44,15 @@ main is at 26.7.11-1 (from an earlier merge today)
 11:30  PR #142 "fix: handle missing stop times" merges
        → bot receives webhook, reads main = 26.7.11-1
        → bot computes next = 26.7.11-2 (same day, counter+1)
-       → bot pushes chore(release): 26.7.11-2 to main
+       → bot opens PR "chore(release): 26.7.11-2" against main
+       → auto-merge fires as soon as required checks pass (~10-30 s)
        → main is now 26.7.11-2
 
 15:45  PR #143 "chore: bump deps" merges
        → bot receives webhook, reads main = 26.7.11-2
        → bot computes next = 26.7.11-3 (same day, counter+1)
-       → bot pushes chore(release): 26.7.11-3 to main
+       → bot opens PR "chore(release): 26.7.11-3" against main
+       → auto-merge fires
        → main is now 26.7.11-3
 ```
 
@@ -62,7 +64,8 @@ main is at 26.7.11-3 (from 11 July)
 10:00  PR #144 "feat: support multiple agencies" merges
        → bot receives webhook, reads main = 26.7.11-3
        → bot computes next = 26.7.12-1 (new day, counter resets to 1)
-       → bot pushes chore(release): 26.7.12-1 to main
+       → bot opens PR "chore(release): 26.7.12-1" against main
+       → auto-merge fires
        → main is now 26.7.12-1
 ```
 
@@ -76,7 +79,7 @@ main is at 26.7.11-2
 14:30  PR #145 merges
        → bot receives webhook, reads main's libs/spec/package.json#version = 26.7.12-1
        → bot reads main's libs/spec/package.json#version at HEAD~1 = 26.7.11-2
-       → bot sees they differ → no-op
+       → bot sees they differ → no-op on libs/spec/package.json
        → main is now 26.7.12-1, exactly as the dev intended
 ```
 
@@ -85,13 +88,14 @@ main is at 26.7.11-2
 ```
 main is at 26.7.11-1
 
-11:30:00  PR-A merges → bot triggers
-11:30:02  PR-B merges → bot triggers (queued behind PR-A's bump)
-11:30:05  PR-A's bump runs → reads 26.7.11-1, pushes 26.7.11-2
-11:30:08  PR-B's bump runs (dequeued) → reads 26.7.11-2, pushes 26.7.11-3
+11:30:00  PR-A merges → bot webhook fires
+11:30:02  PR-B merges → bot webhook fires
+11:30:05  PR-A's webhook runs first → reads 26.7.11-1, opens PR "chore(release): 26.7.11-2"
+11:30:08  PR-B's webhook runs → calls findOpenReleasePR, sees PR-A's PR is still open, no-ops
+11:30:35  PR-A's PR auto-merges → main is now 26.7.11-2
 ```
 
-The two bumps serialize via a `concurrency: group` on the bot's Cloudflare Worker, so they don't race on the read-then-write of main's version. The final state is `26.7.11-3`, with two distinct `chore(release)` commits in `main`'s log. Clean.
+The two webhooks don't race. The second one short-circuits on `findOpenReleasePR` and lets PR-A's PR land first. Once main is at 26.7.11-2, the next PR merge in any repo will trigger the bot again for the 26.7.11-3 bump on the original repo (not on PR-B's repo — each bot run is scoped to the repo that fired the webhook).
 
 ## What ships in `package.json`
 
@@ -101,7 +105,7 @@ For multi-package repos (e.g. `gtfs-publisher` with `libs/spec/`, `gtfs-adapters
 
 ## Anti-patterns to avoid
 
-- **Don't bump on the PR branch.** The PR branch is the dev's; the bot has no business there. The whole point of this model is the bot touches `main`, not the PR.
+- **Don't bump on the PR branch.** The PR branch is the dev's; the bot has no business there. The bot creates its own `release/calver-<version>` branch and opens a PR — the dev's branch is never touched.
 - **Don't bump on a tag.** We don't tag releases. The version in `package.json` is the only version string we publish. If a tag is ever needed, the release bot's commit message is the natural anchor.
 - **Don't bump on a schedule.** Schedule-based bumps cause version drift between the source and the published bundle. The bump should always accompany a code change.
 - **Don't hand-edit `package.json#version` in a PR unless you mean it.** The bot's `skip-if-already-touched` rule treats any version change in the merge as intentional. If the version change is a mistake (e.g. you ran `npm version` locally and committed it), the bot will silently no-op on the bump and your mistake becomes the version.
@@ -113,10 +117,11 @@ The bump is implemented as the `n3ary/release-bot` Cloudflare Worker, deployed v
 
 - `webhook.ts` — receives GitHub webhooks, verifies signature, dispatches.
 - `bump.ts` — CalVer arithmetic, the `nextCalVer(current, now, tz)` function.
-- `commit.ts` — pushes the `chore(release)` commit via the GitHub API.
-- `config.ts` — loads env (timezone, app ID, private key, webhook secret).
+- `commit.ts` — discovers `package.json` files, applies the per-file skip rules, creates the `release/calver-<version>` branch, commits the version bump, opens the PR, enables auto-merge.
+- `pr.ts` — branch + PR operations (`createBranch` is idempotent; `findOpenReleasePR` short-circuits on existing open release PRs).
+- `auth.ts` — JWT signing + installation token exchange.
 
-The bot is a GitHub App registered with the manifest in `n3ary/release-bot/app.yml`, installed on the n3ary org. One org-level branch-protection rule allows the bot's identity to bypass the "no direct push to `main`" requirement.
+The bot is a GitHub App registered with the manifest in `n3ary/release-bot/app.yml`, installed on the n3ary org. The bot is a contributor, not a privileged actor — no org-level bypass-actor rule is required.
 
 The `n3ary/actions/.github/actions/version-bump` composite action **remains** for the `version-input` publish path (used by `gtfs-publisher`'s `release-gtfs-spec.yml` and `gtfs-adapters`'s `release-gtfs-adapter.yml` to publish a specific version). Its `pr-bump` mode is deprecated; no consumer calls it.
 

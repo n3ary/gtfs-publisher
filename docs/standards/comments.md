@@ -1,4 +1,4 @@
-<!-- synced from n3ary/standards@43c6fca on 2026-07-11 -->
+<!-- synced from n3ary/standards@4175a47 on 2026-07-11 -->
 <!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Inline comments
