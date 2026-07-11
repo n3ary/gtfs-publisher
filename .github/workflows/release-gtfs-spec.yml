@@ -1,13 +1,23 @@
-name: '[release] @n3ary/gtfs-spec to GH Packages (on PR merge)'
+name: '[release] @n3ary/gtfs-spec to GH Packages (on push to main)'
 
 # Publishes libs/spec to GitHub Packages (https://npm.pkg.github.com/).
 #
-# Trigger: a PR is merged that touches libs/spec/package.json.
-# The version bump happens inside the PR (via version-bump auto-bump
-# in pr-validation.yml, or manually), so by the time this workflow
-# fires the new version is already on main -- no separate version-bump,
-# tag-push, or release-branch needed here. publish-spec just checks
-# out main, calls package/publish, and lets it do everything else.
+# Trigger: a push to main that touches libs/spec/package.json.
+# The version bump happens on main (via the n3ary-release-bot
+# after a code-change PR is merged, or manually), so by the
+# time this workflow fires the new version is already in
+# libs/spec/package.json -- no separate version-bump, tag-push,
+# or release-branch needed here. publish-spec just checks out
+# main, calls package/publish, and lets it do everything else.
+#
+# Why `push: branches: [main]: paths:` and not
+# `pull_request: types: [closed]`: the previous trigger was
+# consistently "skipped" on every merged PR (job-level `if:`
+# evaluated false silently, no runner, no steps). The same
+# trap as the parallel `release-gtfs-adapter` workflow in
+# gtfs-adapters. Switching to a push trigger with a paths
+# filter binds the publish to the bot's version-bump commit
+# landing on main, which is exactly when a publish is wanted.
 #
 # The package is PUBLIC on GitHub Packages (set via `access: public`
 # in libs/spec/package.json#publishConfig at first publish). To
@@ -22,15 +32,11 @@ name: '[release] @n3ary/gtfs-spec to GH Packages (on PR merge)'
 # then `npm install @n3ary/gtfs-spec` works.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
+    branches: [main]
     paths:
       - 'libs/spec/package.json'
 
-# pull_request_target runs in the base branch's context so secrets
-# (NPM_TOKEN, etc.) are available even if the PR is from a fork.
-# Safe here because this workflow only checks out main, not the PR's
-# untrusted code.
 permissions:
   contents: write   # for the tag push inside package/publish
   packages: write   # for npm publish (via package/publish)
@@ -38,7 +44,9 @@ permissions:
 
 jobs:
   publish:
-    if: github.event.pull_request.merged == true
+    # The trigger is push (any push on main, paths-filtered to
+    # libs/spec/package.json) or workflow_dispatch. Both are
+    # valid; always run.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
