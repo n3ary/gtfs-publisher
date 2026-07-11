@@ -22,8 +22,8 @@ importers:
         specifier: ^10.0.1
         version: 10.1.0
       '@n3ary/gtfs-adapter-cluj-napoca':
-        specifier: ^0.3.4
-        version: 0.3.7
+        specifier: ^0.3.10
+        version: 0.3.10
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../../libs/spec
@@ -63,7 +63,7 @@ importers:
     dependencies:
       '@n3ary/gtfs-adapter-cluj-napoca':
         specifier: ^0.3.7
-        version: 0.3.7
+        version: 0.3.10
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../../libs/spec
@@ -327,8 +327,8 @@ packages:
     resolution: {integrity: sha512-TuB0x50EoAvEX/UEWITd8Mkn3WhiTjSvbTMCLj0BhsQEl5iUzjXdA0bETEVpTk+5TGTLR6QktI9H4hLviVeaAQ==}
     engines: {node: '>=v12.0.0'}
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.7':
-    resolution: {integrity: sha512-3y511t6FebBZ8vXC0PBPsfUWozKlenEuzkSc4l4THN5qWzD0MT8mfiP1PMKvP1lMsJX/f6v7NnpWsQvuKD+9Rg==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.7/a6c5745fa68fc1a394afe69734d0528e5dd6ed93}
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.10':
+    resolution: {integrity: sha512-2ao9kq4zQAaqhFpZEf8gg5eCHH6sx3diA4A/F5JdpnyzNz2GWcSbcTqLa11GN3CddQKxkwK3cHPc11eTUcWwmw==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.10/315c8493024f31d823554a13c782abad9256533f}
     engines: {node: '>=24'}
 
   '@napi-rs/wasm-runtime@1.1.6':
@@ -1094,8 +1094,8 @@ packages:
     resolution: {integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==}
     hasBin: true
 
-  postcss@8.5.16:
-    resolution: {integrity: sha512-vuwillviilfKZsg0VGj5R/YwwcHx4SLsIOI/7K6mQkWx+l5cUHTjj5g0AasTBcyXsbfTgrwsUNmVUb5xVwyPwg==}
+  postcss@8.5.17:
+    resolution: {integrity: sha512-J7EF+8X+CzRPaJPOv9Ck2wNWJvGnnl3PcNPAdGg6GTLjyVpyQ0yATMSXRFRV01BviT/9Gwuc3rjEyJbDJG9a4w==}
     engines: {node: ^10 || ^12 || >=14}
 
   prelude-ls@1.1.2:
@@ -1569,7 +1569,7 @@ snapshots:
     dependencies:
       lodash: 4.18.1
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.7':
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.10':
     dependencies:
       '@n3ary/gtfs-spec': link:libs/spec
       archiver: 8.0.0
@@ -2300,7 +2300,7 @@ snapshots:
       sonic-boom: 4.2.1
       thread-stream: 3.2.0
 
-  postcss@8.5.16:
+  postcss@8.5.17:
     dependencies:
       nanoid: 3.3.15
       picocolors: 1.1.1
@@ -2544,7 +2544,7 @@ snapshots:
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
-      postcss: 8.5.16
+      postcss: 8.5.17
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -2557,7 +2557,7 @@ snapshots:
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
-      postcss: 8.5.16
+      postcss: 8.5.17
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:
