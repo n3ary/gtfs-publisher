@@ -58,7 +58,6 @@ permissions:
   contents: read
   issues: write
   actions: read
-  workflows: write
 
 jobs:
   probe:
@@ -268,12 +267,13 @@ jobs:
             # only one recovery at a time. The recovery workflow
             # itself checks for the label.
             #
-            # The primary trigger path is `recovery.yml`'s
+            # The trigger path is `recovery.yml`'s
             # `issues: types: [opened, labeled]` event - the
-            # `gh workflow run` below is a belt-and-suspenders
-            # fallback (e.g. if the issue was opened more than
-            # 60s ago and GH has already forgotten the labeled
-            # event).
+            # `gh workflow run` below is documented but always fails
+            # with HTTP 403 because GITHUB_TOKEN cannot be used to
+            # trigger workflows (this is a GHA security restriction,
+            # not a permission config issue). The `issues.opened`
+            # event fires reliably when `gh issue create` runs.
             echo "triggering recovery workflow (manual dispatch)"
             gh workflow run recovery.yml \
               --repo '${{ github.repository }}' \
