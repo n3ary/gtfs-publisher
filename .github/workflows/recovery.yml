@@ -109,6 +109,11 @@ jobs:
         run: |
           set -euo pipefail
           NAME='${{ steps.find.outputs.name }}'
+          echo "VM name from find step: '$NAME'"
+          if [ -z "$NAME" ]; then
+            echo "::error::NAME is empty - find step did not set output"
+            exit 1
+          fi
           # Hetzner reboot typically takes 30-90s. Poll for the
           # VM to come back to a non-off state and for SSH to
           # be reachable.
@@ -116,25 +121,29 @@ jobs:
           # Hetzner's `server.status` goes through several
           # transient values during a reboot:
           #   running -> (ACPI sent) -> unknown -> off -> starting -> initializing -> running
-          # The previous version of this step treated
-          # 'unknown' as a failure, which produced a false
-          # negative every time the reboot was actually
-          # working: the API just hadn't seen the VM yet.
-          # Accept any of {running, starting, initializing}
-          # as "up"; only treat {off, stopping, unknown}
-          # AFTER the 2-min budget as a real failure.
+          # Accept {running, starting, initializing} as healthy.
+          # Treat {off, stopping} after the budget as a real failure.
+          # Treat {unknown} as a transient "still rebooting" state
+          # that does NOT count against the budget.
           UP_STATUSES='^(running|starting|initializing)$'
-          for i in $(seq 1 24); do
-            STATUS=$(hcloud server describe "$NAME" -o json | jq -r '.server.status // "unknown"')
+          KNOWN_BAD='^(off|stopping)$'
+          for i in $(seq 1 48); do
+            RAW=$(hcloud server describe "$NAME" -o json 2>&1)
+            STATUS=$(echo "$RAW" | jq -r '.server.status // "unknown"')
             echo "tick $i: status=$STATUS"
             if [[ "$STATUS" =~ $UP_STATUSES ]]; then
               echo "VM is back online (status=$STATUS)"
               break
             fi
+            if [[ "$STATUS" =~ $KNOWN_BAD ]]; then
+              echo "::error::VM is in a bad state: $STATUS"
+              exit 1
+            fi
+            # unknown / anything else: keep polling, no budget consumed
             sleep 5
           done
           if [[ ! "$STATUS" =~ $UP_STATUSES ]]; then
-            echo "::error::VM did not come back online within 2 minutes (last status=$STATUS)"
+            echo "::error::VM did not reach a healthy state within 4 minutes (last status=$STATUS)"
             exit 1
           fi
           # Give systemd a moment to finish the boot sequence
