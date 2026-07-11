@@ -406,26 +406,11 @@ jobs:
             echo "deleting rogue VM left by this run: ${name} (id=${id}, ip=${ip}, live_ip=${LIVE_IP})"
             hcloud server delete "$id"
           done
-
-      - name: Trigger deploy job on the new VM
-        # Best-effort refresh of the new VM's image - the install.sh
-        # bootstrap already pulled :latest at provision time, so
-        # this is only useful if a NEW image was pushed between
-        # bootstrap and this step. In that case the new VM is
-        # already running the previous :latest and will pick up
-        # the new one on its next deploy. Marked continue-on-error
-        # because the default ${{ secrets.GITHUB_TOKEN }} can't
-        # dispatch other workflows (HTTP 403: Resource not
-        # accessible by integration) - this is a known GH
-        # limitation, not a bug in this workflow. When the token
-        # is upgraded to a PAT with `workflow` scope, drop the
-        # continue-on-error flag.
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "triggering deploy-gtfs-rt to refresh the new VM's image"
-          gh workflow run deploy-gtfs-rt.yml \
-            --repo '${{ github.repository }}' \
-            -f image_tag=latest
+          # The bootstrap step (install.sh) already pulled
+          # ghcr.io/n3ary/gtfs-rt:latest and tagged it to
+          # localhost/gtfs-rt:latest, so the new VM is already
+          # running :latest. The deploy-gtfs-rt flow's pre-check,
+          # backup, DNAT flush, and rollback logic don't apply to
+          # a fresh VM (no existing container to back up or
+          # roll back from). The next code change or manual
+          # deploy will pick up any image pushed after provision.
