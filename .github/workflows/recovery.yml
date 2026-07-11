@@ -112,17 +112,29 @@ jobs:
           # Hetzner reboot typically takes 30-90s. Poll for the
           # VM to come back to a non-off state and for SSH to
           # be reachable.
+          #
+          # Hetzner's `server.status` goes through several
+          # transient values during a reboot:
+          #   running -> (ACPI sent) -> unknown -> off -> starting -> initializing -> running
+          # The previous version of this step treated
+          # 'unknown' as a failure, which produced a false
+          # negative every time the reboot was actually
+          # working: the API just hadn't seen the VM yet.
+          # Accept any of {running, starting, initializing}
+          # as "up"; only treat {off, stopping, unknown}
+          # AFTER the 2-min budget as a real failure.
+          UP_STATUSES='^(running|starting|initializing)$'
           for i in $(seq 1 24); do
             STATUS=$(hcloud server describe "$NAME" -o json | jq -r '.server.status // "unknown"')
             echo "tick $i: status=$STATUS"
-            if [ "$STATUS" = "running" ]; then
-              echo "VM is back online"
+            if [[ "$STATUS" =~ $UP_STATUSES ]]; then
+              echo "VM is back online (status=$STATUS)"
               break
             fi
             sleep 5
           done
-          if [ "$STATUS" != "running" ]; then
-            echo "::error::VM did not come back online within 2 minutes"
+          if [[ ! "$STATUS" =~ $UP_STATUSES ]]; then
+            echo "::error::VM did not come back online within 2 minutes (last status=$STATUS)"
             exit 1
           fi
           # Give systemd a moment to finish the boot sequence
