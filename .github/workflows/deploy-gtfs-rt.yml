@@ -9,7 +9,15 @@ name: '[deploy] gtfs-rt to Hetzner (on build complete + manual)'
 
 on:
   workflow_run:
-    workflows: ["Build ghcr.io/n3ary/gtfs-rt"]
+    # Match the build workflow's actual `name:` field verbatim
+    # (the `workflows:` filter uses the workflow's `name`, not
+    # the file name or path). The previous value
+    # `"Build ghcr.io/n3ary/gtfs-rt"` was the build's old name
+    # before it was renamed to the longer `name:` we have today;
+    # the mismatch silently broke every auto-deploy since the
+    # rename, so this workflow never auto-fired and every deploy
+    # had to be triggered manually.
+    workflows: ["[build] gtfs-rt container image (on push to main + tags + manual)"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
