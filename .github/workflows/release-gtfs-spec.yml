@@ -50,6 +50,16 @@ on:
     branches: [main]
     paths:
       - 'libs/spec/package.json'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Force a specific version (e.g. `0.7.1`). Triggers the
+          workflow_dispatch version-override path in the composite.
+          Leave blank to publish whatever version is in
+          libs/spec/package.json on main.
+        required: false
+        type: string
 
 permissions:
   contents: write   # for the tag push inside package/publish
@@ -80,6 +90,7 @@ jobs:
         with:
           package-dir: libs/spec
           tag-template: 'libs/spec/v{version}'
+          version-override: ${{ inputs.version }}
           access: public
           provenance: 'true'
           github-token: ${{ secrets.GITHUB_TOKEN }}
