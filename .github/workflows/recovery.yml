@@ -115,25 +115,18 @@ jobs:
             exit 1
           fi
           # Hetzner reboot typically takes 30-90s. Poll for the
-          # VM to come back to a non-off state and for SSH to
-          # be reachable.
+          # VM to come back to a healthy state.
           #
-          # Hetzner's `server.status` goes through several
-          # transient values during a reboot:
-          #   running -> (ACPI sent) -> unknown -> off -> starting -> initializing -> running
-          # Accept {running, starting, initializing} as healthy.
-          # Treat {off, stopping} after the budget as a real failure.
-          # Treat {unknown} as a transient "still rebooting" state
-          # that does NOT count against the budget.
+          # hcloud server describe -o json returns a flat object
+          # (v1.49.0); status is at the root, not .server.status.
+          # Valid statuses: running, starting, stopping, off,
+          # initializing, unknown (Hetzner can report 'unknown'
+          # during transient states or API glitches).
           UP_STATUSES='^(running|starting|initializing)$'
           KNOWN_BAD='^(off|stopping)$'
           for i in $(seq 1 48); do
             RAW=$(hcloud server describe "$NAME" -o json 2>&1)
-            if [ "$i" = "1" ]; then
-              echo "debug_keys: $(echo "$RAW" | jq 'keys' 2>/dev/null | tr -d '\n' | cut -c1-200)"
-              echo "debug_raw_100: $(echo "$RAW" | cut -c1-200)"
-            fi
-            STATUS=$(echo "$RAW" | jq -r '.server.status // "unknown"')
+            STATUS=$(echo "$RAW" | jq -r '.status // "unknown"')
             echo "tick $i: status=$STATUS"
             if [[ "$STATUS" =~ $UP_STATUSES ]]; then
               echo "VM is back online (status=$STATUS)"
