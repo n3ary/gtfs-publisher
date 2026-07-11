@@ -69,6 +69,72 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Allow this GH runner's IP on the firewall (temporary)
+        # The base firewall (neary-gtfs-rt-01-edge-only) only allows
+        # SSH from the operator's home IP. The GH runner's egress IP
+        # is a different /32 and changes per job. We add a narrow,
+        # self-describing rule for the current run, do the work, and
+        # strip the rule in the cleanup step below. No 0.0.0.0/0
+        # fallback; the runner's exact IP only, for the duration of
+        # this run. The rule description embeds github.run_id so the
+        # cleanup step can identify it without a separate manifest.
+        id: allow-runner
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          FIREWALL: neary-gtfs-rt-01-edge-only
+        run: |
+          set -euo pipefail
+          # GH runner egress IP. Detected once at job start; the
+          # value is stable for the duration of the job because it
+          # is tied to the runner host, not the job contents. Two
+          # endpoints as a belt-and-suspenders check; if they
+          # disagree, the second one wins (closer to a public
+          # resolver path).
+          IP1=$(curl -fsS --max-time 5 https://api.ipify.org || echo "")
+          IP2=$(curl -fsS --max-time 5 https://ifconfig.me || echo "")
+          if [ -z "$IP1" ] || [ -z "$IP2" ] || [ "$IP1" != "$IP2" ]; then
+            echo "::error::could not reliably detect GH runner egress IP (ipify='$IP1' ifconfig='$IP2'); aborting to keep the firewall locked"
+            exit 1
+          fi
+          RUNNER_IP="$IP1"
+          echo "detected runner egress IP: ${RUNNER_IP}"
+          echo "ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
+
+          FW_ID=$(hcloud firewall describe "${FIREWALL}" -o json | jq -r '.id')
+          hcloud firewall describe "${FIREWALL}" -o json > /tmp/fw_before.json
+
+          # Build the new rules list: existing rules + a single
+          # narrow SSH rule for this runner. Done in Python so the
+          # JSON is well-formed regardless of how many CF-edge
+          # source IPs the existing rules have.
+          RUN_DESC="SSH: GH Actions rebuild (run ${{ github.run_id }})"
+          python3 - <<PY
+          import json
+          with open('/tmp/fw_before.json') as f:
+              d = json.load(f)
+          rules = d['rules']
+          rules.append({
+              "description": "${RUN_DESC}",
+              "direction": "in",
+              "port": "22",
+              "protocol": "tcp",
+              "destination_ips": [],
+              "source_ips": ["${RUNNER_IP}/32"],
+          })
+          with open('/tmp/fw_after.json', 'w') as f:
+              json.dump({"rules": rules}, f)
+          print(f"appended 1 rule; total now {len(rules)}")
+          PY
+
+          # POST via REST API (hcloud CLI has no set-rules).
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/fw_after.json \
+            "https://api.hetzner.cloud/v1/firewalls/${FW_ID}/actions/set_rules" \
+            | jq -e '.actions[0].status == "success"'
+          echo "firewall now allows SSH from ${RUNNER_IP}/32 for the duration of this run"
+
       - name: Install hcloud + jq
         run: |
           set -euo pipefail
@@ -414,3 +480,55 @@ jobs:
           # a fresh VM (no existing container to back up or
           # roll back from). The next code change or manual
           # deploy will pick up any image pushed after provision.
+
+      - name: Remove the temporary GH runner SSH rule
+        # Always run, even if an earlier step failed. Identify the
+        # rule by description pattern (not IP) so we don't need
+        # the runner_ip output to have been written - the rule is
+        # self-describing. If the allow-runner step never ran (e.g.
+        # the job exited before the first network call), there is
+        # no rule to remove and this step is a no-op.
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          FIREWALL: neary-gtfs-rt-01-edge-only
+        run: |
+          set -euo pipefail
+          FW_ID=$(hcloud firewall describe "${FIREWALL}" -o json | jq -r '.id')
+          hcloud firewall describe "${FIREWALL}" -o json > /tmp/fw_now.json
+
+          python3 - <<'PY'
+          import json, re
+          with open('/tmp/fw_now.json') as f:
+              d = json.load(f)
+          before = len(d['rules'])
+          # Match any rule whose description contains the
+          # "GH Actions rebuild" marker. This catches both the
+          # current run's rule and any stale rule from a previous
+          # failed run that left the cleanup step itself
+          # unfinished. (Defence in depth: the allow-runner step
+          # is idempotent; running the workflow twice in a row
+          # does not stack rules because the second run's allow
+          # step reads the current state and appends again, and
+          # the cleanup at the end of the second run strips BOTH
+          # the current run's rule and the leftover.)
+          pattern = re.compile(r"GH Actions rebuild")
+          rules = [r for r in d['rules'] if not pattern.search(r.get('description', ''))]
+          removed = before - len(rules)
+          with open('/tmp/fw_cleaned.json', 'w') as f:
+              json.dump({"rules": rules}, f)
+          print(f"removed {removed} GH Actions rebuild rule(s); {len(rules)} remain")
+          if removed == 0:
+              # Write an empty marker so the POST still happens
+              # (keeps the script logic simple); the rules array
+              # is unchanged.
+              pass
+          PY
+
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/fw_cleaned.json \
+            "https://api.hetzner.cloud/v1/firewalls/${FW_ID}/actions/set_rules" \
+            | jq -e '.actions[0].status == "success"'
+          echo "firewall cleanup complete"

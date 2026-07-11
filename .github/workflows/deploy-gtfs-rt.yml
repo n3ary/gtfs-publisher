@@ -32,6 +32,58 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Allow this GH runner's IP on the firewall (temporary)
+        # Same pattern as rebuild-gtfs-rt-vm: the base firewall
+        # only allows SSH from the operator's home IP. The GH
+        # runner's egress IP is different and changes per job.
+        # Add a narrow /32 rule for the current run, do the
+        # deploy, then strip the rule in the cleanup step below.
+        # Description embeds github.run_id for self-identification.
+        id: allow-runner
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          FIREWALL: neary-gtfs-rt-01-edge-only
+        run: |
+          set -euo pipefail
+          IP1=$(curl -fsS --max-time 5 https://api.ipify.org || echo "")
+          IP2=$(curl -fsS --max-time 5 https://ifconfig.me || echo "")
+          if [ -z "$IP1" ] || [ -z "$IP2" ] || [ "$IP1" != "$IP2" ]; then
+            echo "::error::could not reliably detect GH runner egress IP (ipify='$IP1' ifconfig='$IP2'); aborting to keep the firewall locked"
+            exit 1
+          fi
+          RUNNER_IP="$IP1"
+          echo "detected runner egress IP: ${RUNNER_IP}"
+
+          FW_ID=$(hcloud firewall describe "${FIREWALL}" -o json | jq -r '.id')
+          hcloud firewall describe "${FIREWALL}" -o json > /tmp/fw_before.json
+
+          RUN_DESC="SSH: GH Actions deploy (run ${{ github.run_id }})"
+          python3 - <<PY
+          import json
+          with open('/tmp/fw_before.json') as f:
+              d = json.load(f)
+          rules = d['rules']
+          rules.append({
+              "description": "${RUN_DESC}",
+              "direction": "in",
+              "port": "22",
+              "protocol": "tcp",
+              "destination_ips": [],
+              "source_ips": ["${RUNNER_IP}/32"],
+          })
+          with open('/tmp/fw_after.json', 'w') as f:
+              json.dump({"rules": rules}, f)
+          print(f"appended 1 rule; total now {len(rules)}")
+          PY
+
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/fw_after.json \
+            "https://api.hetzner.cloud/v1/firewalls/${FW_ID}/actions/set_rules" \
+            | jq -e '.actions[0].status == "success"'
+          echo "firewall now allows SSH from ${RUNNER_IP}/32 for the duration of this run"
+
       - name: Resolve origin IP via CF API
         # gtfs-rt.n3ary.com is CF-proxied; DNS returns a CF edge IP
         # that does not forward port 22. Read the A-record content
@@ -198,3 +250,39 @@ jobs:
             FAIL "deploy of ${TAG} failed; no backup available (previous was already unhealthy)"
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Remove the temporary GH runner SSH rule
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          FIREWALL: neary-gtfs-rt-01-edge-only
+        run: |
+          set -euo pipefail
+          FW_ID=$(hcloud firewall describe "${FIREWALL}" -o json | jq -r '.id')
+          hcloud firewall describe "${FIREWALL}" -o json > /tmp/fw_now.json
+
+          python3 - <<'PY'
+          import json, re
+          with open('/tmp/fw_now.json') as f:
+              d = json.load(f)
+          before = len(d['rules'])
+          # Match any rule whose description contains the
+          # "GH Actions" marker. Strip both deploy and rebuild
+          # leftovers in one sweep (defence in depth: the deploy
+          # workflow can also clean up after a half-finished
+          # rebuild that left its rule behind).
+          pattern = re.compile(r"GH Actions (deploy|rebuild)")
+          rules = [r for r in d['rules'] if not pattern.search(r.get('description', ''))]
+          removed = before - len(rules)
+          with open('/tmp/fw_cleaned.json', 'w') as f:
+              json.dump({"rules": rules}, f)
+          print(f"removed {removed} GH Actions rule(s); {len(rules)} remain")
+          PY
+
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/fw_cleaned.json \
+            "https://api.hetzner.cloud/v1/firewalls/${FW_ID}/actions/set_rules" \
+            | jq -e '.actions[0].status == "success"'
+          echo "firewall cleanup complete"
