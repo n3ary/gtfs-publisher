@@ -90,18 +90,40 @@ describe('resolve-feeds: realtime URL split (proxy + upstream)', () => {
     // point a feed at a different proxy (e.g. staging) by
     // setting the field themselves.
     expect(RESOLVE_FEEDS_SRC).toMatch(
-      /override\s*&&\s*c\.realtime\?\.vehicle_positions\s*===\s*undefined/,
+      /c\.realtime\?\.vehicle_positions\s*===\s*undefined/,
     );
   });
 
-  it('fills upstream_vehicle_positions from MDB or per-feed override', () => {
-    // The upstream URL the new gtfs-rt server polls is sourced
-    // from the per-feed config's explicit value, falling back
-    // to MDB's discovery (which today goes into `vehicle_positions`
-    // on the mdbRealtime base).
+  it('moves MDB vehicle_positions discovery into upstream_vehicle_positions', () => {
+    // MDB fills `vehicle_positions` on the mdbRealtime base. The
+    // merge moves it into `upstream_vehicle_positions` (the new
+    // server's poll source) at merge time, so the consumer slot
+    // (vehicle_positions) stays clear for the proxy URL rewrite
+    // below. The per-feed config can override upstream_vehicle_positions
+    // explicitly, but there is NO `?? realtime.vehicle_positions`
+    // fallback -- that would re-introduce the circular dependency
+    // the split exists to avoid.
     expect(RESOLVE_FEEDS_SRC).toMatch(
-      /upstream\s*=\s*realtime\.upstream_vehicle_positions\s*\?\?\s*realtime\.vehicle_positions/,
+      /delete realtime\.vehicle_positions/,
     );
+    expect(RESOLVE_FEEDS_SRC).toMatch(
+      /realtime\.upstream_vehicle_positions\s*\?\?\s*realtime\.vehicle_positions/,
+    );
+  });
+
+  it('does NOT use vehicle_positions as a fallback for upstream_vehicle_positions in the proxy rewrite', () => {
+    // The proxy URL rewrite only reads `upstream_vehicle_positions`,
+    // never `vehicle_positions` -- the latter is the consumer
+    // slot (proxy URL), and using it as the source for "what the
+    // server polls" would have the server poll itself.
+    // The branch reads `realtime.upstream_vehicle_positions`
+    // (single read, no `??`).
+    const rewriteBlock = RESOLVE_FEEDS_SRC.match(
+      /override\s*&&[\s\S]*?vehicle_positions:\s*`\$\{RT_PROXY_BASE_URL\}\/rt\/\$\{override\.dir\}\/vehicle_positions`/,
+    );
+    expect(rewriteBlock).not.toBeNull();
+    expect(rewriteBlock![0]).toMatch(/realtime\.upstream_vehicle_positions/);
+    expect(rewriteBlock![0]).not.toMatch(/\?\?/);
   });
 
   it('preserves the existing extras logic (cfgExtras vs adapterExtras)', () => {

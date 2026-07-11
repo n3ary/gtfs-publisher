@@ -1,11 +1,19 @@
 /**
  * poller.ts — per-feed polling loop.
  *
- * Each feed has one primary URL (`realtime.upstream_vehicle_positions`,
- * with `realtime.vehicle_positions` as a legacy fallback) and zero or
- * more extras (`realtime.extra_vehicle_positions[]`). Each URL has
- * its own setInterval so a slow upstream for one URL doesn't block
- * the others.
+ * Each feed has one served URL (`realtime.upstream_vehicle_positions`)
+ * and zero or more extras (`realtime.extra_vehicle_positions[]`). The
+ * served URL is what `/rt/<feed>/vehicle_positions` exposes; the
+ * extras are polled + stored for future reconciliation but not yet
+ * served. Each URL has its own setInterval so a slow upstream for
+ * one URL doesn't block the others.
+ *
+ * The "primary vs extra" split lives in the plan shape, not as a
+ * role tag on the URL: the plan is `{ primary, extras }`, and the
+ * tick derives its role from `url === plan.primary`. The `role`
+ * string we pass to `putSource` is a stored attribute on the
+ * per-URL source record (for log filtering and future
+ * reconciliation), not a control-flow tag.
  *
  * On every tick: fetch -> decode -> apply Quirk(msg, ctx) ->
  * validate against libs/spec/schema's FeedMessageSchema -> re-encode
@@ -15,9 +23,13 @@
  * produced the bytes so future per-URL dispatch is one `if
  * (ctx.url === ...)` line in the adapter, not a config change here.
  *
- * For now (no reconciliation): the HTTP server serves the primary
- * snapshot only. Extras are stored in the per-URL sub-store; a
- * follow-up PR surfaces the reconciliation UI.
+ * `realtime.upstream_vehicle_positions` is REQUIRED. A feed without
+ * it is treated as "no realtime" (skipped). The previous fallback to
+ * `realtime.vehicle_positions` was removed when the upstream /
+ * consumer split landed because the consumer slot is the proxy URL
+ * (`gtfs-rt.n3ary.com/rt/<id>/vehicle_positions`) -- polling that
+ * here would make the server poll itself, which is the circular
+ * dependency the split exists to avoid.
  *
  * Errors are logged via pino but don't crash the loop.
  */
@@ -33,25 +45,21 @@ export interface PollHandle {
   stop(): void;
 }
 
-interface UrlPlan {
-  /** 'primary' | 'extra' -- purely for logging / observability. */
-  role: 'primary' | 'extra';
-  url: string;
+/** Per-feed poll plan. The served URL is `primary`; everything
+ *  in `extras` is polled + stored but not exposed via the
+ *  public `/rt/<feed>/vehicle_positions` endpoint. */
+interface PollPlan {
+  primary: string;
+  extras: string[];
 }
 
-function planUrls(feed: ResolvedFeed): UrlPlan[] {
+function buildPollPlan(feed: ResolvedFeed): PollPlan | null {
   const rt = feed.realtime;
-  if (!rt) return [];
-  const plan: UrlPlan[] = [];
-  // Primary: prefer the explicit upstream URL. Fall back to
-  // `vehicle_positions` for legacy / transitional feeds.json
-  // entries that predate the upstream / consumer split.
-  const primary = rt.upstream_vehicle_positions ?? rt.vehicle_positions;
-  if (primary) plan.push({ role: 'primary', url: primary });
-  for (const url of rt.extra_vehicle_positions ?? []) {
-    plan.push({ role: 'extra', url });
-  }
-  return plan;
+  if (!rt?.upstream_vehicle_positions) return null;
+  return {
+    primary: rt.upstream_vehicle_positions,
+    extras: rt.extra_vehicle_positions ?? [],
+  };
 }
 
 export function startPolling(
@@ -60,20 +68,24 @@ export function startPolling(
   upstreamTimeoutMs: number,
   log: Logger,
 ): PollHandle {
-  const plan = planUrls(feed);
-  if (plan.length === 0) {
-    log.warn({ feedId: feed.id }, 'feed has no vehicle_positions URLs; not polling');
+  const plan = buildPollPlan(feed);
+  if (!plan) {
+    log.warn(
+      { feedId: feed.id },
+      'feed has no realtime.upstream_vehicle_positions; not polling',
+    );
     return { stop: () => {} };
   }
 
   log.info(
-    { feedId: feed.id, primary: plan.find((p) => p.role === 'primary')?.url, extras: plan.filter((p) => p.role === 'extra').map((p) => p.url) },
+    { feedId: feed.id, primary: plan.primary, extras: plan.extras },
     'poll plan',
   );
 
   const handles: ReturnType<typeof setInterval>[] = [];
-  for (const item of plan) {
-    const tick = makeTick(feed, item, upstreamTimeoutMs, log);
+  for (const url of [plan.primary, ...plan.extras]) {
+    const isPrimary = url === plan.primary;
+    const tick = makeTick(feed, url, isPrimary, upstreamTimeoutMs, log);
     // First tick immediately so the store is warm before the first
     // request lands (avoids cold-start 502s for users).
     void tick();
@@ -89,16 +101,21 @@ export function startPolling(
 
 function makeTick(
   feed: ResolvedFeed,
-  item: UrlPlan,
+  url: string,
+  isPrimary: boolean,
   upstreamTimeoutMs: number,
   log: Logger,
 ): () => Promise<void> {
+  // Role is a stored attribute on the per-URL source record, not
+  // a control-flow tag on the URL. Derived once at tick-construction
+  // time from `isPrimary`.
+  const role: 'primary' | 'extra' = isPrimary ? 'primary' : 'extra';
   return async () => {
     try {
-      const { feedMessage, fetchedAt } = await fetchVehiclePositions(item.url, upstreamTimeoutMs);
+      const { feedMessage, fetchedAt } = await fetchVehiclePositions(url, upstreamTimeoutMs);
       const quirk = await loadAdapter(feed);
       const ctx: QuirkContext = {
-        url: item.url,
+        url,
         feed: { id: feed.id, name: feed.name, country: feed.country },
       };
       const cleaned = quirk ? quirk(feedMessage, ctx) : feedMessage;
@@ -108,7 +125,7 @@ function makeTick(
       const parseResult = FeedMessageSchema.safeParse(cleaned);
       if (!parseResult.success) {
         log.warn(
-          { feedId: feed.id, url: item.url, role: item.role, issues: parseResult.error.issues.slice(0, 5) },
+          { feedId: feed.id, url, role, issues: parseResult.error.issues.slice(0, 5) },
           'adapter output failed FeedMessageSchema; dropping snapshot',
         );
         return;
@@ -120,18 +137,18 @@ function makeTick(
       // confirmed the shape matches the schema we wrote.
       const { bytes, entityCount } = reEncode(parseResult.data as unknown as Parameters<typeof reEncode>[0]);
       const appliedAt = new Date();
-      putSource({ feedId: feed.id, url: item.url, role: item.role, fetchedAt, appliedAt, bytes, entityCount });
+      putSource({ feedId: feed.id, url, role, fetchedAt, appliedAt, bytes, entityCount });
       // Only the primary URL is exposed via /rt/<feed>/vehicle_positions
       // until reconciliation lands. Extras live in putSource only.
-      if (item.role === 'primary') {
+      if (isPrimary) {
         putClean({ feedId: feed.id, fetchedAt, appliedAt, bytes, entityCount });
       }
-      log.debug({ feedId: feed.id, url: item.url, role: item.role, entityCount, fetchedAt }, 'polled');
+      log.debug({ feedId: feed.id, url, role, entityCount, fetchedAt }, 'polled');
     } catch (err) {
       if (err instanceof UpstreamFetchError) {
-        log.warn({ feedId: feed.id, url: item.url, role: item.role, err: err.message }, 'upstream fetch failed');
+        log.warn({ feedId: feed.id, url, role, err: err.message }, 'upstream fetch failed');
       } else {
-        log.error({ feedId: feed.id, url: item.url, role: item.role, err }, 'poll failed');
+        log.error({ feedId: feed.id, url, role, err }, 'poll failed');
       }
     }
   };

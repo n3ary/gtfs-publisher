@@ -184,22 +184,26 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
   //     transitous + mobility-database + adapter feeds whose
   //     Transitous entry has RT siblings with mdb-id).
   //   - c.realtime is per-feed override. It can override any
-  //     individual field (e.g. operator redirects the canonical
-  //     URL to a different host) and supplies the
-  //     `upstream_vehicle_positions` /
+  //     individual field (e.g. operator redirects the upstream
+  //     URL to a non-MDB host) and supplies the
   //     `extra_vehicle_positions` array.
-  //   - When a per-feed override exists AND the operator did
-  //     NOT explicitly set `realtime.vehicle_positions` in the
-  //     config, the publisher rewrites `vehicle_positions` to
-  //     the canonical gtfs-rt proxy URL
+  //   - When a per-feed override exists AND the operator did NOT
+  //     explicitly set `realtime.vehicle_positions` in the config,
+  //     the publisher rewrites `vehicle_positions` to the canonical
+  //     gtfs-rt proxy URL
   //     (`https://gtfs-rt.n3ary.com/rt/<id>/vehicle_positions`).
   //     This makes the new gtfs-rt server the canonical realtime
   //     source for any feed with a per-feed config, so the app
   //     can call it directly without a same-origin proxy.
-  //   - The upstream URL the new server polls is recorded in
-  //     `upstream_vehicle_positions` (a new field). MDB's
-  //     `vehicle_positions` is the default; per-feed config
-  //     can override via `realtime.upstream_vehicle_positions`.
+  //   - The upstream URL the new server polls lives in
+  //     `upstream_vehicle_positions`. MDB's `vehicle_positions`
+  //     discovery is moved here at merge time. The per-feed
+  //     config can override it (rare -- e.g. pointing at a
+  //     non-MDB host), but the default is always MDB. The merge
+  //     NEVER falls back to `vehicle_positions` for the upstream:
+  //     that field is the consumer-side (proxy URL), not the
+  //     server-side, so using it as a fallback would re-introduce
+  //     the circular dependency the split was designed to avoid.
   //   - For adapter-type feeds, the adapter's
   //     `/rt.extraVehiclePositions()` is the per-feed canonical
   //     source for the extras array; per-feed config still
@@ -210,35 +214,50 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
   // canonical URLs from the per-feed config means mdbRealtime
   // supplies them.
   let realtime: Realtime | null = { ...(mdbRealtime ?? {}) };
+
+  // MDB fills `vehicle_positions`; the new server's poll source
+  // is `upstream_vehicle_positions`. Move MDB's discovery into
+  // the new field so the consumer-side (vehicle_positions) stays
+  // "what the app calls" and the server-side
+  // (upstream_vehicle_positions) is "what the server polls".
+  // The per-feed config can override upstream_vehicle_positions
+  // explicitly, but never falls back to vehicle_positions.
+  if (realtime && realtime.vehicle_positions) {
+    realtime = {
+      ...realtime,
+      upstream_vehicle_positions:
+        realtime.upstream_vehicle_positions ?? realtime.vehicle_positions,
+    };
+    delete realtime.vehicle_positions;
+  }
+
   if (c.realtime) {
     realtime = { ...realtime, ...c.realtime };
   }
 
-  // Per-feed config presence is the "publish through gtfs-rt" signal:
-  // rewrite `vehicle_positions` to the canonical proxy URL so the
-  // app can call it directly. The operator can still opt out by
-  // explicitly setting `realtime.vehicle_positions` in the config.
-  if (override && c.realtime?.vehicle_positions === undefined && realtime) {
-    // Upstream is the explicit per-feed value, or MDB's discovery.
-    const upstream = realtime.upstream_vehicle_positions ?? realtime.vehicle_positions;
-    if (upstream) {
-      realtime = {
-        ...realtime,
-        upstream_vehicle_positions: upstream,
-        vehicle_positions: `${RT_PROXY_BASE_URL}/rt/${override.dir}/vehicle_positions`,
-      };
-    }
+  // Per-feed config presence is the "publish through gtfs-rt"
+  // signal: rewrite `vehicle_positions` to the canonical proxy
+  // URL so the app can call it directly. The operator can still
+  // opt out by explicitly setting `realtime.vehicle_positions` in
+  // the config.
+  if (
+    override &&
+    realtime &&
+    c.realtime?.vehicle_positions === undefined &&
+    realtime.upstream_vehicle_positions
+  ) {
+    realtime = {
+      ...realtime,
+      vehicle_positions: `${RT_PROXY_BASE_URL}/rt/${override.dir}/vehicle_positions`,
+    };
   }
 
-  if (source.type === 'adapter' && source.publisher) {
+  if (source.type === 'adapter' && source.publisher && realtime) {
     const adapterExtras = await loadAdapterExtras(source.publisher);
     if (adapterExtras !== null) {
-      const cfgExtras = realtime?.extra_vehicle_positions;
-      // Ensure realtime is an object so the spread below doesn't
-      // null out adapterExtras when the feed has no other realtime.
-      const base: Realtime = realtime ?? {};
+      const cfgExtras = realtime.extra_vehicle_positions;
       realtime = {
-        ...base,
+        ...realtime,
         // Per-feed config's value (if explicitly set) wins; the
         // adapter's value is the default. `[]` is a valid
         // operator-set value meaning "no extras", and it wins
