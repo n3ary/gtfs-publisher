@@ -99,7 +99,10 @@ jobs:
           echo "reboot signal sent at $(date -u +%FT%TZ)"
 
       - name: Comment on the issue (if any)
-        if: ${{ github.event_name == 'issues' && github.event.action == 'labeled' }}
+        # Triggers on both issues.opened and issues.labeled
+        # (workflow listens for both per #170). The issue
+        # number is the same in both event payloads.
+        if: ${{ github.event_name == 'issues' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -116,17 +119,29 @@ jobs:
           # Hetzner reboot typically takes 30-90s. Poll for the
           # VM to come back to a non-off state and for SSH to
           # be reachable.
+          #
+          # Hetzner's `server.status` goes through several
+          # transient values during a reboot:
+          #   running -> (ACPI sent) -> unknown -> off -> starting -> initializing -> running
+          # The previous version of this step treated
+          # 'unknown' as a failure, which produced a false
+          # negative every time the reboot was actually
+          # working: the API just hadn't seen the VM yet.
+          # Accept any of {running, starting, initializing}
+          # as "up"; only treat {off, stopping, unknown}
+          # AFTER the 2-min budget as a real failure.
+          UP_STATUSES='^(running|starting|initializing)$'
           for i in $(seq 1 24); do
             STATUS=$(hcloud server describe "$NAME" -o json | jq -r '.server.status // "unknown"')
             echo "tick $i: status=$STATUS"
-            if [ "$STATUS" = "running" ]; then
-              echo "VM is back online"
+            if [[ "$STATUS" =~ $UP_STATUSES ]]; then
+              echo "VM is back online (status=$STATUS)"
               break
             fi
             sleep 5
           done
-          if [ "$STATUS" != "running" ]; then
-            echo "::error::VM did not come back online within 2 minutes"
+          if [[ ! "$STATUS" =~ $UP_STATUSES ]]; then
+            echo "::error::VM did not come back online within 2 minutes (last status=$STATUS)"
             exit 1
           fi
           # Give systemd a moment to finish the boot sequence
