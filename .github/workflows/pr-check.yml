@@ -21,8 +21,8 @@ on:
 # jobs (build, pipeline smoke) stay local because they need repo
 # secrets (NPM_TOKEN, TRANZY_API_KEY) and the full pipeline runner.
 #
-# Pinned to @main until n3ary/actions cuts a tagged release that
-# includes the pr-check.yml wrapper (PR #36). Switch to @v23 (or
+# SHA-pinned to the PR #36 merge commit until n3ary/actions cuts a
+# tagged release that includes the wrapper. Switch to @v23 (or
 # whichever tag covers the wrapper) when available.
 
 permissions:
@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   pr-check:
-    uses: n3ary/actions/.github/workflows/pr-check.yml@main
+    uses: n3ary/actions/.github/workflows/pr-check.yml@55e3606351c523d4716d28819577816ddb818a0f
 
   validate:
     runs-on: ubuntu-latest
