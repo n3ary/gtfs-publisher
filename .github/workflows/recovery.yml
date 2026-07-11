@@ -36,7 +36,16 @@ on:
         type: string
         default: 'manual'
   issues:
-    types: [labeled]
+    # GH fires `issues.opened` when an issue is CREATED with a
+    # label, but does NOT fire `issues.labeled` in that case -
+    # `labeled` only fires when a label is added to an existing
+    # issue. uptime.yml creates the issue with the label in one
+    # call (`gh issue create --label vm-restart-pending`), so
+    # the `labeled` event would miss the trigger. `opened`
+    # catches that path; we still keep `labeled` so a re-add
+    # (e.g. uptime.yml running on a degraded-then-DOWN cycle
+    # where the issue was already open) also re-fires recovery.
+    types: [opened, labeled]
 
 permissions:
   contents: read
@@ -47,8 +56,8 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'vm-restart-pending')
+       contains(github.event.issue.labels.*.name, 'vm-restart-pending') &&
+       (github.event.action == 'opened' || github.event.action == 'labeled'))
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:

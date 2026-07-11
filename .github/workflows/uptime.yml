@@ -158,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "manually triggering recovery workflow"
-          gh workflow run recovery-gtfs-rt-vm.yml \
+          gh workflow run recovery.yml \
             --repo '${{ github.repository }}' \
             -f reason="manual-trigger-from-uptime-cron"
           echo "recovery workflow dispatched"
@@ -207,6 +207,13 @@ jobs:
           echo "last 3 conclusions: $CONCLUSIONS (current=$CURRENT reason=$CURRENT_REASON)"
           FAIL_COUNT=$(echo "$CONCLUSIONS" | tr ',' '\n' | grep -c '^failure$' || true)
           echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
+          # Surface the conclusions string for downstream steps.
+          # Each step runs in a fresh shell, so a bare
+          # `$CONCLUSIONS` here is NOT visible in the next
+          # step's bash. We have to ferry it through the
+          # GITHUB_OUTPUT protocol. Body-of-issue below reads
+          # this via ${{ steps.state.outputs.conclusions }}.
+          echo "conclusions=${CONCLUSIONS}" >> "$GITHUB_OUTPUT"
           if [ "$FAIL_COUNT" -ge 3 ]; then
             echo "state=DOWN" >> "$GITHUB_OUTPUT"
           elif [ "$FAIL_COUNT" -ge 1 ]; then
@@ -220,6 +227,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STATE: ${{ steps.state.outputs.state }}
+          CONCLUSIONS: ${{ steps.state.outputs.conclusions }}
         run: |
           set -euo pipefail
           ISSUE=$(gh issue list --state open --search "gtfs-rt.n3ary.com DOWN in:title" --json number --jq '.[0].number // empty')
@@ -241,7 +249,7 @@ jobs:
           \`neary-gtfs-rt.service\` auto-starts the container on
           boot).
 
-          - Last 3 conclusions: $CONCLUSIONS
+          - Last 3 conclusions: ${CONCLUSIONS}
           - Triggered at: $(date -u +%FT%TZ)
           - First check after this issue was opened will close
             it if the service is back. The issue is reopened
@@ -258,10 +266,18 @@ jobs:
             # natural idempotency token: only one open issue means
             # only one recovery at a time. The recovery workflow
             # itself checks for the label.
-            echo "triggering recovery workflow"
-            gh workflow run recovery-gtfs-rt-vm.yml \
+            #
+            # The primary trigger path is `recovery.yml`'s
+            # `issues: types: [opened, labeled]` event - the
+            # `gh workflow run` below is a belt-and-suspenders
+            # fallback (e.g. if the issue was opened more than
+            # 60s ago and GH has already forgotten the labeled
+            # event).
+            echo "triggering recovery workflow (manual dispatch)"
+            gh workflow run recovery.yml \
               --repo '${{ github.repository }}' \
-              -f reason="uptime-cron-3-consecutive-failures"
+              -f reason="uptime-cron-3-consecutive-failures" \
+              || echo "warn: gh workflow run failed; the issues.opened/labeled event should still fire"
           else
             # HEALTHY or DEGRADED. If there's an open issue, close
             # it - the service is back (or the failures are
