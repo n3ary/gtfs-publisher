@@ -1,5 +1,5 @@
-<!-- synced from n3ary/standards@957883b on 2026-07-08 -->
-<!-- do not edit locally; this sync was done manually because scripts/vendor-standards.mjs is not present in this repo -->
+<!-- synced from n3ary/standards@43c6fca on 2026-07-11 -->
+<!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Shared standards manifest
 
@@ -21,7 +21,10 @@ Every standard below is vendored into each consumer repo's `docs/standards/` via
 | [repo-settings.md](repo-settings.md) | Branch protection, merge strategy, Dependabot, secret scanning — applied to every n3ary repo. |
 | [testing.md](testing.md) | Scope, location, size targets. |
 | [verification.md](verification.md) | Verify before stating; confidence in answers. |
-| [version-management.md](version-management.md) | Bump `package.json#version` on PR, not on merge. |
+| [version-management.md](version-management.md) | CalVer `YY.M.D-N` versions in `Europe/Bucharest` timezone. Bump on merge to `main` by the org-level release bot. |
+| [workflow-naming.md](workflow-naming.md) | The `[<type>] <subject> (<trigger>)` format for `name:` and the `<verb>-<scope>.yml` format for filenames. |
+| [workflow-conventions.md](workflow-conventions.md) | The description block header, least-privilege `permissions:`, `head.sha` checkout for post-merge workflows. |
+| [org-automation.md](org-automation.md) | The `n3ary-release-bot` Cloudflare Worker + GitHub App. Install, deploy, on-call, secret rotation. |
 
 ## Local-only (per consumer repo)
 

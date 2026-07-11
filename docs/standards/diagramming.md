@@ -1,5 +1,5 @@
-<!-- synced from n3ary/standards@957883b on 2026-07-08 -->
-<!-- do not edit locally; this sync was done manually because scripts/vendor-standards.mjs is not present in this repo -->
+<!-- synced from n3ary/standards@43c6fca on 2026-07-11 -->
+<!-- do not edit locally; run scripts/vendor-standards.mjs to update -->
 
 # Diagramming and admonitions
 
