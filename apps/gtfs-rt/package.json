@@ -1,6 +1,6 @@
 {
   "name": "@gtfs/rt",
-  "version": "26.7.11-6",
+  "version": "26.7.12-1",
   "private": true,
   "description": "Live GTFS-RT adapter -- polls upstream feeds, applies per-feed quirks, publishes a clean FeedMessage. Issue #34 step 7.",
   "type": "module",
