@@ -144,6 +144,9 @@ jobs:
           echo "recovery workflow dispatched"
 
       - name: Compute state from last 3 runs
+        if: ${{ always() }}  # run even when the probe failed - the
+                              # whole point of the state machine is to
+                              # detect failed runs
         id: state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -166,7 +169,7 @@ jobs:
           fi
 
       - name: Open or close the incident issue
-        if: ${{ inputs.simulate_failures != 'true' && inputs.reset_state != 'true' && inputs.recover_now != 'true' }}
+        if: ${{ always() && inputs.reset_state != 'true' && inputs.recover_now != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STATE: ${{ steps.state.outputs.state }}
