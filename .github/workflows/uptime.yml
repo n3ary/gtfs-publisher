@@ -69,7 +69,14 @@ jobs:
         # context and errors out with "not a git repository" without
         # this. Default `actions: read` is enough for `gh api` to read
         # run history.
-        uses: actions/checkout@v4
+        #
+        # Pinned to v7 (not v4) because v4 targets Node 20, which is
+        # deprecated on GitHub Actions runners as of 2025-09-19 and
+        # gets force-promoted to Node 24 with a deprecation warning.
+        # v5+ is rebuilt for Node 24; v7 matches the rest of the
+        # workflows in this repo (build-gtfs-rt, daily, pr-validation,
+        # publish-spec).
+        uses: actions/checkout@v7
 
       - name: Ensure incident labels exist
         # `gh issue create --label X` fails with "label not found"
