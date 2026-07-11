@@ -16,18 +16,18 @@ on:
   pull_request:
     branches: [main]
 
-# Shared base PR-validation lives in n3ary/actions. Repo-specific
-# jobs (build, pipeline smoke) stay local because they
-# need repo secrets (NPM_TOKEN, TRANZY_API_KEY) and the full pipeline
-# runner.
+# Shared PR-check lives in n3ary/actions. The shared wrapper
+# (`pr-check.yml`) handles ascii + standards-drift. Repo-specific
+# jobs (build, pipeline smoke) stay local because they need repo
+# secrets (NPM_TOKEN, TRANZY_API_KEY) and the full pipeline runner.
 
 permissions:
   contents: read
   packages: read
 
 jobs:
-  shared:
-    uses: n3ary/actions/.github/workflows/pr-validation.yml@v22
+  pr-check:
+    uses: n3ary/actions/.github/workflows/pr-check.yml@v23
 
   validate:
     runs-on: ubuntu-latest
