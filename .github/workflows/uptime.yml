@@ -15,12 +15,11 @@ name: gtfs-rt uptime
 # is the second-line that catches the cases the timer doesn't
 # (e.g. the unit itself is masked, or systemd is wedged).
 #
-# What this does NOT catch: silent data corruption (the service
-# returns 200 but vehicle_positions has 0 entities). The
-# /rt/cluj-napoca/vehicle_positions probe is a partial
-# defense (asserts the response body is non-empty), but a
-# thorough check would need an entity count assertion. Cheap
-# enough to add if you've seen that mode of failure.
+# What this does NOT catch: silent data corruption in the
+# protobuf bytes (service returns 200, JSON is valid, but the
+# poller has been returning the same data for hours). A
+# thorough check would compare entity IDs between two recent
+# polls; cheap to add if you've seen that mode of failure.
 #
 # State machine:
 #   HEALTHY  -> all last 3 cron runs are success; no issue open
@@ -29,9 +28,6 @@ name: gtfs-rt uptime
 #               `vm-restart-pending` label; recovery workflow
 #               has been triggered (or is running)
 #   recovery -> DEGRADED -> HEALTHY once 1+ success after DOWN
-#
-# This is `continue-on-error` on the probe step so a single bad
-# run doesn't kill the cron. State is determined AFTER the probe.
 
 on:
   schedule:
@@ -67,15 +63,8 @@ jobs:
       - name: Check out the repo
         # Required: `gh issue create` runs `git` internally for branch
         # context and errors out with "not a git repository" without
-        # this. Default `actions: read` is enough for `gh api` to read
-        # run history.
-        #
-        # Pinned to v7 (not v4) because v4 targets Node 20, which is
-        # deprecated on GitHub Actions runners as of 2025-09-19 and
-        # gets force-promoted to Node 24 with a deprecation warning.
-        # v5+ is rebuilt for Node 24; v7 matches the rest of the
-        # workflows in this repo (build-gtfs-rt, daily, pr-validation,
-        # publish-spec).
+        # this. Pinned to v7 to match the rest of the workflows
+        # here and to skip the v4/Node-20 deprecation warning.
         uses: actions/checkout@v7
 
       - name: Ensure incident labels exist
@@ -111,48 +100,77 @@ jobs:
           echo "reset done - exiting"
           exit 0
 
-      - name: Probe /healthz and /api/rt/cluj-napoca/vehicle_positions
+      - name: Probe /healthz and /feeds
         id: probe
         if: ${{ inputs.simulate_failures != 'true' && inputs.reset_state != 'true' }}
         env:
           SIMULATE_FAILURES: ${{ inputs.simulate_failures }}
+          # The /feeds JSON validator lives inline as a YAML
+          # literal block (rather than a heredoc) so the YAML
+          # parser doesn't have to deal with `<<PY`. The run
+          # below passes it to `python3 -c` via shell variable
+          # expansion - the inner double-quotes are preserved
+          # (the outer ones are shell quoting, gone at
+          # expansion time). Same trick for any non-trivial
+          # Python embedded in a workflow run.
+          #
+          # /feeds returns {"feeds": [{...}, ...]} per
+          # server.ts, NOT a raw array. The validator walks
+          # into data['feeds'] before the rest of the checks.
+          VALIDATE_FEEDS: |
+            import json, sys
+            try:
+                data = json.loads(open("/tmp/f.body").read())
+            except Exception as e:
+                print(f"feeds body is not valid JSON: {e}", file=sys.stderr)
+                sys.exit(1)
+            if not isinstance(data, dict):
+                print(f"feeds body is not a JSON object (got {type(data).__name__})", file=sys.stderr)
+                sys.exit(2)
+            feeds = data.get("feeds")
+            if not isinstance(feeds, list) or len(feeds) == 0:
+                kind = type(feeds).__name__
+                size = f"len={len(feeds)}" if isinstance(feeds, list) else "no len (not a list)"
+                print(f"feeds.feeds is not a non-empty JSON array (got {kind}, {size})", file=sys.stderr)
+                sys.exit(2)
+            for feed in feeds:
+                if not isinstance(feed, dict) or "feedId" not in feed:
+                    print(f"feeds entry missing feedId: {feed}", file=sys.stderr)
+                    sys.exit(3)
+            print(f"{len(feeds)} feed(s) configured: {[f['feedId'] for f in feeds]}")
         run: |
           set -uo pipefail
-          # SIMULATE_FAILURES: when this run is meant to be a
-          # failure (for testing), skip the curl calls. The
-          # success/failure of the step is what matters for the
-          # state machine below; we don't need to surface the
-          # curl error in the run summary.
           if [ "${SIMULATE_FAILURES:-false}" = "true" ]; then
             echo "::notice::simulate_failures=true; skipping real probe, treating as failure"
             echo "ok=0" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          # Probe /healthz (Fastify process alive) and /feeds
+          # (poller actually producing data). Both are JSON and
+          # bypass the CF 5 s cache rule on /rt/... - a stale
+          # cached protobuf response can mask an origin outage
+          # for the revalidation window, and probing binary
+          # protobuf for the literal string "entity" is not
+          # a useful signal.
           HSTATUS=$(curl -sS -m 10 -o /tmp/h.body -w '%{http_code}' https://gtfs-rt.n3ary.com/healthz || true)
-          HFAIL=$?
-          echo "healthz status=$HSTATUS curl_exit=$HFAIL"
-          H_BODY=$(head -c 200 /tmp/h.body 2>/dev/null || echo "")
-          echo "healthz_body=$H_BODY"
-          VSTATUS=$(curl -sS -m 10 -o /tmp/v.body -w '%{http_code}' https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions || true)
-          VFAIL=$?
-          echo "vehicle_positions status=$VSTATUS curl_exit=$VFAIL"
-          V_BODY=$(head -c 200 /tmp/v.body 2>/dev/null || echo "")
-          echo "vehicle_positions_body=$V_BODY"
-          # Both endpoints must return 200 AND the body must be
-          # non-empty. The 200 alone isn't enough - a misbehaving
-          # service can return 200 with an empty body.
-          if [ "$HSTATUS" != "200" ] || [ "$VSTATUS" != "200" ]; then
-            echo "::error::one or both endpoints non-200"
+          echo "healthz status=$HSTATUS"
+          FSTATUS=$(curl -sS -m 10 -o /tmp/f.body -w '%{http_code}' https://gtfs-rt.n3ary.com/feeds || true)
+          echo "feeds status=$FSTATUS"
+          if [ "$HSTATUS" != "200" ] || [ "$FSTATUS" != "200" ]; then
+            echo "::error::one or both endpoints non-200 (healthz=$HSTATUS feeds=$FSTATUS)"
             echo "ok=0" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          if [ ! -s /tmp/h.body ] || [ ! -s /tmp/v.body ]; then
+          if [ ! -s /tmp/h.body ] || [ ! -s /tmp/f.body ]; then
             echo "::error::one or both bodies empty"
             echo "ok=0" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          if ! grep -q '"entity"' /tmp/v.body; then
-            echo "::error::vehicle_positions body missing 'entity' (silent-data-corruption sentinel)"
+          # /feeds body shape check: must be {"feeds": [{...}, ...]}
+          # with at least one feedId-keyed entry. See VALIDATE_FEEDS
+          # above for the full JSON schema.
+          if ! python3 -c "$VALIDATE_FEEDS"; then
+            echo "::error::feeds body validation failed (see validator output above)"
             echo "ok=0" >> "$GITHUB_OUTPUT"
             exit 1
           fi
@@ -162,18 +180,23 @@ jobs:
         if: ${{ inputs.recover_now == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
           echo "manually triggering recovery workflow"
-          gh workflow run recovery.yml \
+          # GITHUB_TOKEN cannot dispatch workflows from inside a
+          # workflow run by design (GHA security restriction).
+          # Use the PAT in GH_DISPATCH_TOKEN (workflow scope)
+          # instead.
+          GH_TOKEN="$GH_DISPATCH_TOKEN" gh workflow run recovery.yml \
             --repo '${{ github.repository }}' \
             -f reason="manual-trigger-from-uptime-cron"
           echo "recovery workflow dispatched"
 
       - name: Compute state from last 3 runs
-        if: ${{ always() }}  # run even when the probe failed - the
-                              # whole point of the state machine is to
-                              # detect failed runs
+        # always() so the state machine still runs when the probe
+        # failed - that's the whole point of the state machine.
+        if: ${{ always() }}
         id: state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -181,45 +204,27 @@ jobs:
           PROBE_OK: ${{ steps.probe.outputs.ok }}
         run: |
           set -euo pipefail
-          # Decide the CURRENT run's conclusion from the inputs +
-          # probe step output. The API would tell us, but the
-          # current run is still in progress at this point and its
-          # conclusion field is null. So the API gives us only the
-          # 2 prior runs reliably; we need to fill in the 3rd slot
-          # ourselves.
+          # The current run's conclusion is null in the API at
+          # this point (still in progress). Derive it from inputs
+          # + probe output, then read the 2 prior runs.
           if [ "${SIMULATE_FAILURES:-false}" = "true" ]; then
             CURRENT="failure"
-            CURRENT_REASON="simulate_failures=true"
           elif [ -z "${PROBE_OK:-}" ]; then
-            # Probe was skipped (only happens if reset_state=true, but
-            # reset_state short-circuits the whole job before this).
-            # Treat as failure to be safe - we don't want to silently
-            # miss a real outage.
             CURRENT="failure"
-            CURRENT_REASON="probe skipped"
           elif [ "$PROBE_OK" = "0" ]; then
             CURRENT="failure"
-            CURRENT_REASON="probe returned ok=0"
           else
             CURRENT="success"
-            CURRENT_REASON="probe returned ok=1"
           fi
-          # Fetch the 2 PRIOR runs. (The current one isn't done yet
-          # and would have a null conclusion, which would throw off
-          # the count. Drop the first entry of the response, which
-          # is the current in-progress run.)
           PRIOR=$(gh api "repos/${{ github.repository }}/actions/workflows/uptime.yml/runs?per_page=3" \
             --jq '.workflow_runs | .[1:] | map(.conclusion) | join(",")')
           CONCLUSIONS="$PRIOR,$CURRENT"
-          echo "last 3 conclusions: $CONCLUSIONS (current=$CURRENT reason=$CURRENT_REASON)"
+          echo "last 3 conclusions: $CONCLUSIONS"
           FAIL_COUNT=$(echo "$CONCLUSIONS" | tr ',' '\n' | grep -c '^failure$' || true)
           echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
-          # Surface the conclusions string for downstream steps.
-          # Each step runs in a fresh shell, so a bare
-          # `$CONCLUSIONS` here is NOT visible in the next
-          # step's bash. We have to ferry it through the
-          # GITHUB_OUTPUT protocol. Body-of-issue below reads
-          # this via ${{ steps.state.outputs.conclusions }}.
+          # Ferry CONCLUSIONS to the next step via GITHUB_OUTPUT
+          # (each step runs in a fresh shell, so a bare
+          # $CONCLUSIONS here wouldn't be visible downstream).
           echo "conclusions=${CONCLUSIONS}" >> "$GITHUB_OUTPUT"
           if [ "$FAIL_COUNT" -ge 3 ]; then
             echo "state=DOWN" >> "$GITHUB_OUTPUT"
@@ -233,6 +238,7 @@ jobs:
         if: ${{ always() && inputs.reset_state != 'true' && inputs.recover_now != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
           STATE: ${{ steps.state.outputs.state }}
           CONCLUSIONS: ${{ steps.state.outputs.conclusions }}
         run: |
@@ -242,12 +248,12 @@ jobs:
           if [ "$STATE" = "DOWN" ]; then
             if [ -z "$ISSUE" ]; then
               echo "creating incident issue"
-              # `gh issue create` does NOT support --json. It
-              # prints the issue URL to stdout on success; we
-              # extract the issue number from the trailing path
-              # segment.
+              # `gh issue create` prints the URL to stdout on
+              # success; extract the issue number from the
+              # trailing path segment. (`--json number` is not
+              # supported on `gh issue create`.)
               ISSUE_URL=$(gh issue create \
-                --title "gtfs-rt.n3ary.com DOWN — $(date -u +%FT%TZ)" \
+                --title "gtfs-rt.n3ary.com DOWN - $(date -u +%FT%TZ)" \
                 --label "vm-restart-pending" \
                 --body "$(cat <<EOF
           \`gtfs-rt.n3ary.com\` has failed 3 consecutive uptime
@@ -269,26 +275,22 @@ jobs:
               echo "issue already open: #$ISSUE - ensuring label"
               gh issue edit "$ISSUE" --add-label "vm-restart-pending" || true
             fi
-            # Trigger the recovery workflow. Use the issue as a
-            # natural idempotency token: only one open issue means
-            # only one recovery at a time. The recovery workflow
-            # itself checks for the label.
-            #
-            # The trigger path is `recovery.yml`'s
-            # `issues: types: [opened, labeled]` event - the
-            # `gh workflow run` below is documented but always fails
-            # with HTTP 403 because GITHUB_TOKEN cannot be used to
-            # trigger workflows (this is a GHA security restriction,
-            # not a permission config issue). The `issues.opened`
-            # event fires reliably when `gh issue create` runs.
+            # Primary trigger: recovery.yml's `issues: types:
+            # [opened, labeled]` event fires from `gh issue
+            # create` / `gh issue edit` above. The manual
+            # dispatch below is a belt-and-suspenders fallback
+            # in case GH has already forgotten the labeled
+            # event. Uses GH_DISPATCH_TOKEN (PAT with workflow
+            # scope) - GITHUB_TOKEN can't dispatch workflows
+            # by design.
             echo "triggering recovery workflow (manual dispatch)"
-            gh workflow run recovery.yml \
+            GH_TOKEN="$GH_DISPATCH_TOKEN" gh workflow run recovery.yml \
               --repo '${{ github.repository }}' \
               -f reason="uptime-cron-3-consecutive-failures" \
               || echo "warn: gh workflow run failed; the issues.opened/labeled event should still fire"
           else
-            # HEALTHY or DEGRADED. If there's an open issue, close
-            # it - the service is back (or the failures are
+            # HEALTHY or DEGRADED. If there's an open issue,
+            # close it - service is back (or the failures are
             # intermittent and the issue is no longer accurate).
             if [ -n "$ISSUE" ]; then
               echo "closing issue #$ISSUE - state=$STATE"
