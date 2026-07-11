@@ -27,7 +27,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const POLLER_SRC = readFileSync(join(HERE, 'poller.ts'), 'utf8');
+// `pnpm test` runs after `pnpm build`, so vitest sees BOTH the
+// src test file and its compiled dist/ copy. The compiled copy
+// runs from apps/gtfs-rt/dist/, where `poller.ts` (relative
+// to the test) doesn't exist -- the path needs to navigate
+// up one level first so the same file is found regardless of
+// which copy vitest is running.
+const POLLER_SRC = readFileSync(join(HERE, '..', 'src', 'poller.ts'), 'utf8');
 
 describe('poller: upstream_vehicle_positions is required (no vehicle_positions fallback)', () => {
   it('does NOT fall back to realtime.vehicle_positions when upstream_vehicle_positions is missing', () => {
