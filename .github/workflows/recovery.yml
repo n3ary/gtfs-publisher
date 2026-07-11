@@ -129,6 +129,10 @@ jobs:
           KNOWN_BAD='^(off|stopping)$'
           for i in $(seq 1 48); do
             RAW=$(hcloud server describe "$NAME" -o json 2>&1)
+            if [ "$i" = "1" ]; then
+              echo "debug_keys: $(echo "$RAW" | jq 'keys' 2>/dev/null | tr -d '\n' | cut -c1-200)"
+              echo "debug_raw_100: $(echo "$RAW" | cut -c1-200)"
+            fi
             STATUS=$(echo "$RAW" | jq -r '.server.status // "unknown"')
             echo "tick $i: status=$STATUS"
             if [[ "$STATUS" =~ $UP_STATUSES ]]; then
