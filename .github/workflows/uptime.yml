@@ -64,6 +64,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - name: Check out the repo
+        # Required: `gh issue create` runs `git` internally for branch
+        # context and errors out with "not a git repository" without
+        # this. Default `actions: read` is enough for `gh api` to read
+        # run history.
+        uses: actions/checkout@v4
+
       - name: Reset state (workflow_dispatch only)
         if: ${{ inputs.reset_state == 'true' }}
         env:
