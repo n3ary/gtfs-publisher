@@ -1,8 +1,8 @@
 {
   "name": "@gtfs/rt",
-  "version": "26.7.11-3",
+  "version": "26.7.11-4",
   "private": true,
-  "description": "Live GTFS-RT adapter ÃÂ¢ÃÂÃÂ polls upstream feeds, applies per-feed quirks, publishes a clean FeedMessage. Issue #34 step 7.",
+  "description": "Live GTFS-RT adapter ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ polls upstream feeds, applies per-feed quirks, publishes a clean FeedMessage. Issue #34 step 7.",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
