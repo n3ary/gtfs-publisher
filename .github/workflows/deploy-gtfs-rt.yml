@@ -29,6 +29,7 @@ on:
 
 env:
   HETZNER_SSH_USER: root
+  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
 concurrency:
   group: deploy-gtfs-rt
@@ -148,6 +149,7 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 12m
+          envs: GHCR_TOKEN
           script: |
             set -euo pipefail
             TAG='${{ github.event.inputs.image_tag || 'latest' }}'
