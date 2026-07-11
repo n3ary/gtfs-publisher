@@ -71,6 +71,19 @@ jobs:
         # run history.
         uses: actions/checkout@v4
 
+      - name: Ensure incident labels exist
+        # `gh issue create --label X` fails with "label not found"
+        # if X doesn't exist. Create the label on every run
+        # (idempotent; `gh label create` exits non-zero if it
+        # already exists, which we swallow). Cheap - one API call.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          gh label create "vm-restart-pending" \
+            --description "VM reboot pending - uptime monitor detected 3 consecutive failures" \
+            --color "D93F0B" 2>/dev/null || true
+
       - name: Reset state (workflow_dispatch only)
         if: ${{ inputs.reset_state == 'true' }}
         env:
@@ -214,7 +227,11 @@ jobs:
           if [ "$STATE" = "DOWN" ]; then
             if [ -z "$ISSUE" ]; then
               echo "creating incident issue"
-              ISSUE=$(gh issue create \
+              # `gh issue create` does NOT support --json. It
+              # prints the issue URL to stdout on success; we
+              # extract the issue number from the trailing path
+              # segment.
+              ISSUE_URL=$(gh issue create \
                 --title "gtfs-rt.n3ary.com DOWN — $(date -u +%FT%TZ)" \
                 --label "vm-restart-pending" \
                 --body "$(cat <<EOF
@@ -224,15 +241,15 @@ jobs:
           \`neary-gtfs-rt.service\` auto-starts the container on
           boot).
 
-          - Last 3 conclusions: ${{ needs.probe.outputs.* }}
+          - Last 3 conclusions: $CONCLUSIONS
           - Triggered at: $(date -u +%FT%TZ)
           - First check after this issue was opened will close
             it if the service is back. The issue is reopened
             on the next 3-failure cycle.
           EOF
-          )" \
-                --json number --jq '.number')
-              echo "created issue #$ISSUE"
+          )")
+              ISSUE=$(echo "$ISSUE_URL" | grep -oE '/issues/[0-9]+$' | grep -oE '[0-9]+$')
+              echo "created issue #$ISSUE ($ISSUE_URL)"
             else
               echo "issue already open: #$ISSUE - ensuring label"
               gh issue edit "$ISSUE" --add-label "vm-restart-pending" || true
