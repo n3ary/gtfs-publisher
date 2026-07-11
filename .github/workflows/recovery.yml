@@ -61,6 +61,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
+      - name: Check out the repo
+        # Required: `gh issue comment` runs `git` internally for branch
+        # context and errors out with "not a git repository" without this.
+        uses: actions/checkout@v4
+
       - name: Install hcloud
         run: |
           set -euo pipefail
@@ -97,18 +102,6 @@ jobs:
           echo "sending ACPI reboot to $NAME"
           hcloud server reboot "$NAME"
           echo "reboot signal sent at $(date -u +%FT%TZ)"
-
-      - name: Comment on the issue (if any)
-        # Triggers on both issues.opened and issues.labeled
-        # (workflow listens for both per #170). The issue
-        # number is the same in both event payloads.
-        if: ${{ github.event_name == 'issues' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh issue comment '${{ github.event.issue.number }}' \
-            --body "VM reboot triggered by \`recovery-gtfs-rt-vm\` at $(date -u +%FT%TZ). Reason: ${{ github.event.issue.title }}."
 
       - name: Wait + verify
         env:
@@ -148,3 +141,15 @@ jobs:
           # and the healthcheck timer its first run.
           sleep 30
           echo "VM rebooted successfully"
+
+      - name: Comment on the issue (if any)
+        if: ${{ github.event_name == 'issues' && github.event.action == 'labeled' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Best-effort comment; a failure here should not fail the job.
+          # The VM has already been rebooted and verified at this point.
+          set -eo pipefail
+          gh issue comment '${{ github.event.issue.number }}' \
+            --body "VM reboot triggered by \`recovery-gtfs-rt-vm\` at $(date -u +%FT%TZ). Reason: ${{ github.event.issue.title }}." \
+            || echo "warn: could not post issue comment (git repo may be unavailable)"
