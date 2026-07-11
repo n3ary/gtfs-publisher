@@ -40,6 +40,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Install hcloud + jq
+        # The hcloud CLI is not on the runner by default. We need it
+        # to look up the firewall ID by name in the allow/cleanup
+        # steps below. ops-rebuild-gtfs-rt-vm installs it the same
+        # way. Without this step the deploy has been failing with
+        # `hcloud: command not found` since the rebuild workflow
+        # was forked off (the hcloud install lived only in the
+        # rebuild path).
+        run: |
+          set -euo pipefail
+          curl -sSLo /tmp/hcloud.tar.gz \
+            https://github.com/hetznercloud/cli/releases/download/v1.49.0/hcloud-linux-amd64.tar.gz
+          tar -C /tmp -xzf /tmp/hcloud.tar.gz
+          mv /tmp/hcloud /usr/local/bin/hcloud
+          hcloud version
+
       - name: Allow this GH runner's IP on the firewall (temporary)
         # Same pattern as rebuild-gtfs-rt-vm: the base firewall
         # only allows SSH from the operator's home IP. The GH
