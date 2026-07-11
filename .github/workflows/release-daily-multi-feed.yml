@@ -1,4 +1,4 @@
-name: "Daily multi-feed pipeline → R2"
+name: '[release] daily multi-feed pipeline to R2 (on schedule + push to main + manual)'
 
 # Builds outputs/ and uploads to the Cloudflare R2 bucket on success.
 # Triggers: cron 00:30 UTC (after Transitous's ~00:00 UTC daily import)

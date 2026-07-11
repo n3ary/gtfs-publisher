@@ -1,4 +1,4 @@
-name: gtfs-rt uptime
+name: '[monitor] gtfs-rt uptime (on schedule + manual)'
 
 # Probes gtfs-rt.n3ary.com every 15 minutes. Tracks failure state
 # via the GH Actions run history (no external state store needed).

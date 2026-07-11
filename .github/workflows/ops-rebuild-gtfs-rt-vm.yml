@@ -1,4 +1,4 @@
-name: Rebuild gtfs-rt VM
+name: '[ops] rebuild gtfs-rt VM (manual)'
 
 # Spins up a fresh Hetzner CX23 in nbg1, runs the install script,
 # swaps the gtfs-rt.n3ary.com DNS A record to the new VM's primary

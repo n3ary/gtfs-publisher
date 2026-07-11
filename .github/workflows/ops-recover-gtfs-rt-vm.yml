@@ -1,4 +1,4 @@
-name: gtfs-rt recovery (VM reboot)
+name: '[ops] gtfs-rt VM recovery (on issue + manual)'
 
 # Triggered by the uptime monitor's incident issue (label
 # `vm-restart-pending`) OR by manual `workflow_dispatch`. Reboots

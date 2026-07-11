@@ -1,3 +1,5 @@
+name: '[release] @n3ary/gtfs-spec to GH Packages (on PR merge)'
+
 # Publishes libs/spec to GitHub Packages (https://npm.pkg.github.com/).
 #
 # Trigger: a PR is merged that touches libs/spec/package.json.

@@ -1,4 +1,4 @@
-name: Build ghcr.io/n3ary/gtfs-rt
+name: '[build] gtfs-rt container image (on push to main + tags + manual)'
 
 # Requires: GHCR_TOKEN (packages:write for n3ary org), NPM_TOKEN
 # (GH Packages, already used by daily.yml).

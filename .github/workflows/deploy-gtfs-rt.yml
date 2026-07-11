@@ -1,4 +1,4 @@
-name: Deploy gtfs-rt to Hetzner
+name: '[deploy] gtfs-rt to Hetzner (on build complete + manual)'
 
 # Auto-deploy when the Build workflow finishes on main. Manual
 # dispatch for ad-hoc deploys / rollbacks.
