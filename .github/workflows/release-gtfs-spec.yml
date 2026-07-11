@@ -1,10 +1,19 @@
-name: '[release] @n3ary/gtfs-spec to GH Packages (on push to main)'
+name: '[publish] @n3ary/gtfs-spec to GH Packages (on bot bump)'
 
 # Publishes libs/spec to GitHub Packages (https://npm.pkg.github.com/).
 #
-# Trigger: a push to main that touches libs/spec/package.json.
-# The version bump happens on main (via the n3ary-release-bot
-# after a code-change PR is merged, or manually), so by the
+# Trigger: a push to main where the head commit's author is the
+# n3ary-release-bot and the push touched libs/spec/package.json.
+# The bot opens a release/X PR that bumps
+# libs/spec/package.json#version and auto-merges to main,
+# producing a single squash commit whose author is
+# `n3ary-release-bot[bot]`. Tying the publish to THAT author
+# means a code-only PR that incidentally touches libs/spec
+# (e.g. a type change in another package) does NOT publish.
+# A human who wants to publish outside the bot flow uses the
+# `workflow_dispatch` trigger.
+#
+# The version bump happens on main (via the bot), so by the
 # time this workflow fires the new version is already in
 # libs/spec/package.json -- no separate version-bump, tag-push,
 # or release-branch needed here. publish-spec just checks out
@@ -14,10 +23,15 @@ name: '[release] @n3ary/gtfs-spec to GH Packages (on push to main)'
 # `pull_request: types: [closed]`: the previous trigger was
 # consistently "skipped" on every merged PR (job-level `if:`
 # evaluated false silently, no runner, no steps). The same
-# trap as the parallel `release-gtfs-adapter` workflow in
-# gtfs-adapters. Switching to a push trigger with a paths
-# filter binds the publish to the bot's version-bump commit
-# landing on main, which is exactly when a publish is wanted.
+# trap applied to the parallel `release-gtfs-adapter`
+# workflow in gtfs-adapters. Switching to a push trigger with
+# a paths filter + a bot-author job-level guard gives a
+# single, explicit condition for "this push is a bot-driven
+# version bump and we should publish".
+#
+# Naming: matches the `[build] gtfs-rt container image`
+# pattern on gtfs-publisher -- `[verb] [artifact]` where
+# verb describes what the workflow does.
 #
 # The package is PUBLIC on GitHub Packages (set via `access: public`
 # in libs/spec/package.json#publishConfig at first publish). To
@@ -44,9 +58,15 @@ permissions:
 
 jobs:
   publish:
-    # The trigger is push (any push on main, paths-filtered to
-    # libs/spec/package.json) or workflow_dispatch. Both are
-    # valid; always run.
+    # Run on:
+    #   - workflow_dispatch (any manual trigger)
+    #   - push to main where the head commit's author is the
+    #     n3ary-release-bot. Code-only PRs (with human authors)
+    #     do not pass this check and the publish is skipped.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       github.event.head_commit.author.username == 'n3ary-release-bot[bot]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
