@@ -100,3 +100,51 @@ describe('poller: plan shape is { primary, extras[] }, not { role, url }[]', () 
     expect(POLLER_SRC).toMatch(/for\s*\(\s*const\s+url\s+of\s+\[plan\.primary,\s*\.\.\.plan\.extras\]\s*\)/);
   });
 });
+
+describe('poller: reconciliation integration', () => {
+  it('triggers a reconciliation after every putSource, not a direct putClean', () => {
+    // The reconciled stream is what consumers read. The poller
+    // used to call putClean directly for the primary URL -- that
+    // was the "primary is the served URL" mental model. The new
+    // design reconciles ALL sources (primary + extras) into one
+    // stream, so the poller schedules reconciliation and the
+    // reconciler calls putClean. A direct putClean in the tick
+    // would short-circuit reconciliation and serve stale
+    // (primary-only) bytes.
+    //
+    // The old direct-call pattern looked like:
+    //   if (isPrimary) {
+    //     putClean({ feedId: feed.id, ... });
+    //   }
+    // The new pattern is just `scheduleReconciliation(feed.id, log)`.
+    expect(POLLER_SRC).toMatch(/scheduleReconciliation\(feed\.id,\s*log\)/);
+    // Specifically: no isPrimary-conditional putClean. The
+    // reconciler is the only thing that calls putClean.
+    const tickBlock = POLLER_SRC.match(/function\s+makeTick[\s\S]*?^}/m);
+    expect(tickBlock).not.toBeNull();
+    expect(tickBlock![0]).not.toMatch(/if\s*\(\s*isPrimary\s*\)\s*\{[\s\S]*?putClean/);
+  });
+
+  it('debounces reconciliation so a full poll cycle coalesces into one merge', () => {
+    // The poller fires N ticks (primary + extras) within ~1 s
+    // of each other. Without a debounce, each tick would
+    // trigger a separate merge pass. The debounce (RECONCILE_DEBOUNCE_MS,
+    // 500 ms) collapses one full cycle into a single merge.
+    expect(POLLER_SRC).toMatch(/RECONCILE_DEBOUNCE_MS/);
+    expect(POLLER_SRC).toMatch(/setTimeout/);
+    expect(POLLER_SRC).toMatch(/clearTimeout/);
+  });
+
+  it('cancels the reconciliation timer on stop() so a teardown does not call into a dead store', () => {
+    // The reconciliation timer holds a closure over the feed
+    // id; if it fires after startPolling has returned and the
+    // feed has been removed from the registry, the merge would
+    // run against stale state. stop() must clear it.
+    // Match the real stop (not the no-op `stop: () => {}` early
+    // return for feeds without a plan) by anchoring on the
+    // reconciliationTimers Map cleanup.
+    expect(POLLER_SRC).toMatch(
+      /reconciliationTimers\.get\(feed\.id\)[\s\S]*?clearTimeout\(timer\)[\s\S]*?reconciliationTimers\.delete\(feed\.id\)/,
+    );
+  });
+});
