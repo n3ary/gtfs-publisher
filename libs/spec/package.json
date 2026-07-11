@@ -2,7 +2,7 @@
   "name": "@n3ary/gtfs-spec",
   "version": "0.7.1",
   "private": false,
-  "description": "GTFS spec \u00c3\u0083\u00c2\u00a2\u00c3\u0082\u00c2\u0080\u00c3\u0082\u00c2\u0094 the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
+  "description": "GTFS spec -- the canonical contract. Two subpaths: /spec (per-spec-file readers) and /schema (registry-publication shapes). Zero per-feed knowledge.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
