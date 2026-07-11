@@ -22,7 +22,7 @@ permissions:
   packages: read   # needed to install @n3ary/* deps from GH Packages
 
 jobs:
-  shared:
+  pr-check:
     uses: n3ary/actions/.github/workflows/pr-validation.yml@v22
 
   validate:
