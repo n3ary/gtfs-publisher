@@ -157,14 +157,41 @@ jobs:
         id: state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SIMULATE_FAILURES: ${{ inputs.simulate_failures }}
+          PROBE_OK: ${{ steps.probe.outputs.ok }}
         run: |
           set -euo pipefail
-          # Read the last 3 runs of THIS workflow (including the
-          # current one). The probe step is the only job, so the
-          # run's overall conclusion == the probe's success.
-          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/actions/workflows/uptime.yml/runs?per_page=3" \
-            --jq '.workflow_runs | map(.conclusion) | join(",")')
-          echo "last 3 conclusions: $CONCLUSIONS"
+          # Decide the CURRENT run's conclusion from the inputs +
+          # probe step output. The API would tell us, but the
+          # current run is still in progress at this point and its
+          # conclusion field is null. So the API gives us only the
+          # 2 prior runs reliably; we need to fill in the 3rd slot
+          # ourselves.
+          if [ "${SIMULATE_FAILURES:-false}" = "true" ]; then
+            CURRENT="failure"
+            CURRENT_REASON="simulate_failures=true"
+          elif [ -z "${PROBE_OK:-}" ]; then
+            # Probe was skipped (only happens if reset_state=true, but
+            # reset_state short-circuits the whole job before this).
+            # Treat as failure to be safe - we don't want to silently
+            # miss a real outage.
+            CURRENT="failure"
+            CURRENT_REASON="probe skipped"
+          elif [ "$PROBE_OK" = "0" ]; then
+            CURRENT="failure"
+            CURRENT_REASON="probe returned ok=0"
+          else
+            CURRENT="success"
+            CURRENT_REASON="probe returned ok=1"
+          fi
+          # Fetch the 2 PRIOR runs. (The current one isn't done yet
+          # and would have a null conclusion, which would throw off
+          # the count. Drop the first entry of the response, which
+          # is the current in-progress run.)
+          PRIOR=$(gh api "repos/${{ github.repository }}/actions/workflows/uptime.yml/runs?per_page=3" \
+            --jq '.workflow_runs | .[1:] | map(.conclusion) | join(",")')
+          CONCLUSIONS="$PRIOR,$CURRENT"
+          echo "last 3 conclusions: $CONCLUSIONS (current=$CURRENT reason=$CURRENT_REASON)"
           FAIL_COUNT=$(echo "$CONCLUSIONS" | tr ',' '\n' | grep -c '^failure$' || true)
           echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
           if [ "$FAIL_COUNT" -ge 3 ]; then
