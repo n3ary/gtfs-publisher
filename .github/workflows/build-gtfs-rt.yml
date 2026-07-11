@@ -23,6 +23,13 @@ permissions:
 
 jobs:
   build:
+    # Skip build when the release bot (n3ary-release-bot) is the actor.
+    # The bot's release/calver-* PRs land on main as a squash merge; the
+    # `push` event fires with `github.actor = n3ary-release-bot[bot]`.
+    # The bot bumps `libs/spec/package.json`, which matches the paths
+    # filter above. A version-only commit would build and push a
+    # byte-identical container image.
+    if: github.actor != 'n3ary-release-bot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
