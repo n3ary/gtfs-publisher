@@ -17,7 +17,7 @@ name: gtfs-rt uptime
 #
 # What this does NOT catch: silent data corruption (the service
 # returns 200 but vehicle_positions has 0 entities). The
-# /api/rt/cluj-napoca/vehicle_positions probe is a partial
+# /rt/cluj-napoca/vehicle_positions probe is a partial
 # defense (asserts the response body is non-empty), but a
 # thorough check would need an entity count assertion. Cheap
 # enough to add if you've seen that mode of failure.
@@ -126,7 +126,7 @@ jobs:
           echo "healthz status=$HSTATUS curl_exit=$HFAIL"
           H_BODY=$(head -c 200 /tmp/h.body 2>/dev/null || echo "")
           echo "healthz_body=$H_BODY"
-          VSTATUS=$(curl -sS -m 10 -o /tmp/v.body -w '%{http_code}' https://gtfs-rt.n3ary.com/api/rt/cluj-napoca/vehicle_positions || true)
+          VSTATUS=$(curl -sS -m 10 -o /tmp/v.body -w '%{http_code}' https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions || true)
           VFAIL=$?
           echo "vehicle_positions status=$VSTATUS curl_exit=$VFAIL"
           V_BODY=$(head -c 200 /tmp/v.body 2>/dev/null || echo "")
