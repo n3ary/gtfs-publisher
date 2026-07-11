@@ -1,0 +1,4 @@
+{
+  "_comment": "Minimal Tursib per-feed config. The presence of this dir + the `enhances` value matching a Transitous source name is what makes Tursib publishable (resolve-feeds.ts auto-derives the publish set from feeds/<id>/ presence). No realtime block today: MDB has no RT siblings for Tursib, so feeds.json.realtime will be null and the app skips live data for this feed. Add a `realtime` block here if/when Tursib gets an operator-published RT feed.",
+  "enhances": "Tursib"
+}

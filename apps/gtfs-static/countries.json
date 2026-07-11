@@ -1,5 +1,4 @@
 {
-  "_comment": "Single source of truth for which feeds we publish. 'include[]' lists Transitous source names (from <iso>.json). Each becomes either a plain mirror of Transitous's resolved zip, OR -- if a feeds/<id>/config.json declares enhances:'<name>' with source.type=remote -- a download of a sister-repo's pre-built zip (e.g. gtfs-adapters).",
-  "countries": ["ro"],
-  "include": ["Cluj-Napoca", "Tursib"]
+  "_comment": "Which Transitous country ro.json files we scan. The actual publish set is auto-derived from feeds/<id>/config.json directories: a feed is published iff its config's `enhances` value matches a Transitous source name in the scanned countries. See resolve-feeds.ts for the merge logic.",
+  "countries": ["ro"]
 }

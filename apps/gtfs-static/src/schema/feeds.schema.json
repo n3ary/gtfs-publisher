@@ -105,7 +105,8 @@
           "type": ["object", "null"],
           "additionalProperties": false,
           "properties": {
-            "vehicle_positions":      { "type": "string", "format": "uri" },
+            "vehicle_positions":           { "type": "string", "format": "uri", "description": "URL the app calls for cleaned vehicle_positions. When the feed has a feeds/<id>/config.json, this is rewritten to https://gtfs-rt.n3ary.com/rt/<id>/vehicle_positions." },
+            "upstream_vehicle_positions": { "type": "string", "format": "uri", "description": "URL the gtfs-rt server polls. MDB-derived by default; per-feed config can override." },
             "extra_vehicle_positions": {
               "type": "array",
               "items": { "type": "string", "format": "uri" }

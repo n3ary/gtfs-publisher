@@ -1,10 +1,11 @@
 /**
  * poller.ts — per-feed polling loop.
  *
- * Each feed has one primary URL (`realtime.vehicle_positions`) and
- * zero or more extras (`realtime.extra_vehicle_positions[]`).
- * Each URL has its own setInterval so a slow upstream for one URL
- * doesn't block the others.
+ * Each feed has one primary URL (`realtime.upstream_vehicle_positions`,
+ * with `realtime.vehicle_positions` as a legacy fallback) and zero or
+ * more extras (`realtime.extra_vehicle_positions[]`). Each URL has
+ * its own setInterval so a slow upstream for one URL doesn't block
+ * the others.
  *
  * On every tick: fetch -> decode -> apply Quirk(msg, ctx) ->
  * validate against libs/spec/schema's FeedMessageSchema -> re-encode
@@ -42,7 +43,11 @@ function planUrls(feed: ResolvedFeed): UrlPlan[] {
   const rt = feed.realtime;
   if (!rt) return [];
   const plan: UrlPlan[] = [];
-  if (rt.vehicle_positions) plan.push({ role: 'primary', url: rt.vehicle_positions });
+  // Primary: prefer the explicit upstream URL. Fall back to
+  // `vehicle_positions` for legacy / transitional feeds.json
+  // entries that predate the upstream / consumer split.
+  const primary = rt.upstream_vehicle_positions ?? rt.vehicle_positions;
+  if (primary) plan.push({ role: 'primary', url: primary });
   for (const url of rt.extra_vehicle_positions ?? []) {
     plan.push({ role: 'extra', url });
   }

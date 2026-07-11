@@ -1,22 +1,28 @@
 /**
  * resolve-feeds.ts — produce the ordered list of feeds this run will build.
  *
- * Single source of truth: `countries.json`'s `include[]` lists Transitous
- * source names to publish. Each entry becomes either:
+ * Single source of truth: each `feeds/<id>/config.json` with a valid
+ * `enhances: "<TransitousName>"` is published. `countries.json` only
+ * declares the countries whose Transitous feeds we scan; the publish
+ * set is fully derived from the filesystem.
  *
+ * Each published feed becomes one of:
  *   - a **plain mirror** of Transitous's resolved zip (default), OR
- *   - a **remote-sourced feed** if a `feeds/<id>/config.json` declares
- *     `enhances: "<TransitousName>"` and a `source.type === "remote"`
- *     pointing at a fully pre-built GTFS zip in another repo, OR
- *   - an **adapter-driven feed** if a `feeds/<id>/config.json` declares
+ *   - a **remote-sourced feed** if the config declares
+ *     `source.type === "remote"` pointing at a fully pre-built GTFS
+ *     zip in another repo, OR
+ *   - an **adapter-driven feed** if the config declares
  *     `source.type === "adapter"` and a `source.publisher` naming the
  *     adapter package (e.g. `@n3ary/gtfs-adapter-<feed>`).
  *
- * The override file may also overlay realtime / license / metadata
- * fields on top of any kind of base.
+ * The config may also overlay realtime / license / metadata fields
+ * on top of any kind of base.
  *
- * Local feed dirs without an `enhances` value (or whose `enhances`
- * doesn't match anything in `include[]`) are warned about and skipped.
+ * `feeds/<id>/config.json` is required for every published feed --
+ * adding a new feed is "create the dir + write the config", no separate
+ * include list to update. An override whose `enhances` value does not
+ * match any Transitous source in the scanned countries is a hard build
+ * error (typo, or Transitous removed the source).
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -39,6 +45,14 @@ const COUNTRIES_JSON = join(__dirname, '..', 'countries.json');
 
 const TRANSITOUS_RAW = 'https://raw.githubusercontent.com/public-transport/transitous/main/feeds';
 const TRANSITOUS_GTFS_BASE = 'https://api.transitous.org/gtfs';
+// Canonical gtfs-rt proxy base URL. The new server
+// (deployed on Hetzner, CF-fronted at this hostname) is the
+// canonical realtime source for every feed with a per-feed config.
+// The publisher rewrites feeds.json.realtime.vehicle_positions to
+// `<RT_PROXY_BASE_URL>/rt/<feed_id>/vehicle_positions` so the app
+// can call the proxy directly. Override with the
+// `GTFS_RT_PROXY_BASE_URL` env var for staging/local.
+const RT_PROXY_BASE_URL = (process.env.GTFS_RT_PROXY_BASE_URL ?? 'https://gtfs-rt.n3ary.com').replace(/\/+$/, '');
 
 // ───────────────────────────────────────────────────────────────────────────
 // Per-feed overrides (auto-discovered from feeds/<id>/config.json)
@@ -172,7 +186,20 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
   //   - c.realtime is per-feed override. It can override any
   //     individual field (e.g. operator redirects the canonical
   //     URL to a different host) and supplies the
+  //     `upstream_vehicle_positions` /
   //     `extra_vehicle_positions` array.
+  //   - When a per-feed override exists AND the operator did
+  //     NOT explicitly set `realtime.vehicle_positions` in the
+  //     config, the publisher rewrites `vehicle_positions` to
+  //     the canonical gtfs-rt proxy URL
+  //     (`https://gtfs-rt.n3ary.com/rt/<id>/vehicle_positions`).
+  //     This makes the new gtfs-rt server the canonical realtime
+  //     source for any feed with a per-feed config, so the app
+  //     can call it directly without a same-origin proxy.
+  //   - The upstream URL the new server polls is recorded in
+  //     `upstream_vehicle_positions` (a new field). MDB's
+  //     `vehicle_positions` is the default; per-feed config
+  //     can override via `realtime.upstream_vehicle_positions`.
   //   - For adapter-type feeds, the adapter's
   //     `/rt.extraVehiclePositions()` is the per-feed canonical
   //     source for the extras array; per-feed config still
@@ -182,16 +209,36 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
   // fields, not replace the whole object) so dropping the
   // canonical URLs from the per-feed config means mdbRealtime
   // supplies them.
-  let realtime: Realtime = { ...(mdbRealtime ?? {}) };
+  let realtime: Realtime | null = { ...(mdbRealtime ?? {}) };
   if (c.realtime) {
     realtime = { ...realtime, ...c.realtime };
   }
+
+  // Per-feed config presence is the "publish through gtfs-rt" signal:
+  // rewrite `vehicle_positions` to the canonical proxy URL so the
+  // app can call it directly. The operator can still opt out by
+  // explicitly setting `realtime.vehicle_positions` in the config.
+  if (override && c.realtime?.vehicle_positions === undefined && realtime) {
+    // Upstream is the explicit per-feed value, or MDB's discovery.
+    const upstream = realtime.upstream_vehicle_positions ?? realtime.vehicle_positions;
+    if (upstream) {
+      realtime = {
+        ...realtime,
+        upstream_vehicle_positions: upstream,
+        vehicle_positions: `${RT_PROXY_BASE_URL}/rt/${override.dir}/vehicle_positions`,
+      };
+    }
+  }
+
   if (source.type === 'adapter' && source.publisher) {
     const adapterExtras = await loadAdapterExtras(source.publisher);
     if (adapterExtras !== null) {
-      const cfgExtras = realtime.extra_vehicle_positions;
+      const cfgExtras = realtime?.extra_vehicle_positions;
+      // Ensure realtime is an object so the spread below doesn't
+      // null out adapterExtras when the feed has no other realtime.
+      const base: Realtime = realtime ?? {};
       realtime = {
-        ...realtime,
+        ...base,
         // Per-feed config's value (if explicitly set) wins; the
         // adapter's value is the default. `[]` is a valid
         // operator-set value meaning "no extras", and it wins
@@ -199,6 +246,15 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
         extra_vehicle_positions: cfgExtras !== undefined ? cfgExtras : adapterExtras,
       };
     }
+  }
+
+  // Normalize empty realtime to null. The `mdbRealtime ?? {}` spread
+  // above always produces an object; if every field stayed unset
+  // (no MDB, no per-feed override, no adapter extras) the feed has
+  // no real realtime configuration and feeds.json should publish
+  // `"realtime": null` rather than `"realtime": {}`.
+  if (realtime && Object.keys(realtime).length === 0) {
+    realtime = null;
   }
 
   return {
@@ -256,11 +312,13 @@ async function loadAdapterExtras(publisher: string): Promise<string[] | null> {
 export async function resolveFeeds(): Promise<Feed[]> {
   const config = JSON.parse(readFileSync(COUNTRIES_JSON, 'utf8')) as {
     countries?: string[];
-    include?: string[];
   };
   const countries = config.countries ?? [];
-  const includeWhitelist = new Set(config.include ?? []);
   const overrides = loadOverrides();
+  // The publish set is the set of Transitous source names that
+  // have a matching `feeds/<id>/config.json` (the override's
+  // `enhances` field). No more separate `include[]` whitelist.
+  const publishNames = new Set(overrides.keys());
 
   const feeds: Feed[] = [];
   const seenIds = new Set<string>();
@@ -276,7 +334,7 @@ export async function resolveFeeds(): Promise<Feed[]> {
     }
     const sources = Array.isArray(payload.sources) ? payload.sources : [];
     for (const raw of sources) {
-      if (!raw.name || !includeWhitelist.has(raw.name)) continue;
+      if (!raw.name || !publishNames.has(raw.name)) continue;
       // RT siblings are consumed by resolveRealtimeForName below, not
       // emitted as standalone feeds.
       if (raw.spec === 'gtfs-rt') continue;
@@ -294,11 +352,22 @@ export async function resolveFeeds(): Promise<Feed[]> {
     }
   }
 
-  // Warn about orphan overrides — local dirs with enhances:X but X not in include[]
+  // Hard error on orphan overrides — every feeds/<id>/config.json
+  // must point at a real Transitous source in the scanned countries.
+  // A non-match means either a typo in `enhances` or a source that
+  // was renamed/removed upstream. Failing the build is better than
+  // silently dropping a feed the operator thinks they configured.
+  const orphans: string[] = [];
   for (const [name, ov] of overrides) {
     if (!matchedOverrides.has(name)) {
-      console.warn(`[resolve-feeds] feeds/${ov.dir}/ enhances "${name}" but that name is not in countries.json include[] — feed will not be published.`);
+      orphans.push(`feeds/${ov.dir}/ enhances "${name}" (no Transitous source matched in countries.json)`);
     }
+  }
+  if (orphans.length > 0) {
+    throw new Error(
+      `[resolve-feeds] ${orphans.length} orphan override(s):\n  - ${orphans.join('\n  - ')}\n` +
+      'Fix the `enhances` value to match a real Transitous source name, or remove the feeds/<dir>/ directory.',
+    );
   }
 
   const tag = (f: Feed) => f.source.type === 'remote' ? '*' : '';

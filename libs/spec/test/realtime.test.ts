@@ -61,4 +61,26 @@ describe('RealtimeSchema', () => {
       extra_vehicle_positions: ['http://mirror1.example.com/vp.pb'],
     })).toThrow();
   });
+
+  it('accepts upstream_vehicle_positions (https)', () => {
+    const result = RealtimeSchema.parse({
+      vehicle_positions: 'https://consumer.example.com/vp.pb',
+      upstream_vehicle_positions: 'https://upstream.example.com/vp.pb',
+    });
+    expect(result.upstream_vehicle_positions).toBe('https://upstream.example.com/vp.pb');
+  });
+
+  it('accepts upstream_vehicle_positions without vehicle_positions', () => {
+    const result = RealtimeSchema.parse({
+      upstream_vehicle_positions: 'https://upstream.example.com/vp.pb',
+    });
+    expect(result.upstream_vehicle_positions).toBe('https://upstream.example.com/vp.pb');
+    expect(result.vehicle_positions).toBeUndefined();
+  });
+
+  it('rejects http:// upstream_vehicle_positions', () => {
+    expect(() => RealtimeSchema.parse({
+      upstream_vehicle_positions: 'http://upstream.example.com/vp.pb',
+    })).toThrow();
+  });
 });
