@@ -301,9 +301,10 @@ async function projectFeedImpl(iso: string, raw: RawTransitousSource, override: 
  * Try to load extra vehicle_positions URLs from the adapter's
  * `/rt` subpath. Returns null if the adapter doesn't export an
  * `extraVehiclePositions()` function, or if the dynamic import
- * fails. Cached per publisher. Safe to call against cluj 0.3.5
- * (no export) — the function is missing, this returns null, the
- * per-feed config value is used as the source of truth.
+ * fails. Cached per publisher. Safe to call against adapters that
+ * don't export the function (early or minimal adapter versions) —
+ * the function is missing, this returns null, the per-feed config
+ * value is used as the source of truth.
  */
 const adapterExtrasCache = new Map<string, string[] | null>();
 async function loadAdapterExtras(publisher: string): Promise<string[] | null> {
