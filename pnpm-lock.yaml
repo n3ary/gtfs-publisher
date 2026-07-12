@@ -62,8 +62,8 @@ importers:
   apps/gtfs-static:
     dependencies:
       '@n3ary/gtfs-adapter-cluj-napoca':
-        specifier: ^0.3.7
-        version: 0.3.10
+        specifier: ^0.3.12
+        version: 0.3.12
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../../libs/spec
@@ -329,6 +329,10 @@ packages:
 
   '@n3ary/gtfs-adapter-cluj-napoca@0.3.10':
     resolution: {integrity: sha512-2ao9kq4zQAaqhFpZEf8gg5eCHH6sx3diA4A/F5JdpnyzNz2GWcSbcTqLa11GN3CddQKxkwK3cHPc11eTUcWwmw==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.10/315c8493024f31d823554a13c782abad9256533f}
+    engines: {node: '>=24'}
+
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.12':
+    resolution: {integrity: sha512-VxMpbXZrae9lXdSrFk6axRUhi0ow3ixd9afTU9CkaGM/TxtHTCyGP4S+glSpPu+uJfo+iEu5R8i8A2gk4EDcDQ==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.12/0fd39c77cc25754dc3fdfb0453724e800aab2d24}
     engines: {node: '>=24'}
 
   '@napi-rs/wasm-runtime@1.1.6':
@@ -1573,6 +1577,17 @@ snapshots:
     dependencies:
       '@n3ary/gtfs-spec': link:libs/spec
       archiver: 8.0.0
+      gtfs-realtime-bindings: 1.1.1
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.12':
+    dependencies:
+      '@n3ary/gtfs-spec': link:libs/spec
+      archiver: 8.0.0
+      csv-stringify: 6.8.1
       gtfs-realtime-bindings: 1.1.1
     transitivePeerDependencies:
       - bare-abort-controller
