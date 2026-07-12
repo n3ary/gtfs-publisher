@@ -31,6 +31,40 @@ env:
   HETZNER_SSH_USER: root
   GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
+# Explicit permissions block.
+#
+# Two scopes are required:
+#   actions: read    -- to RECEIVE the workflow_run event in the
+#                       first place. Without this, downstream
+#                       workflows never get told the upstream
+#                       build completed, so the auto-deploy
+#                       silently no-ops. The default repo
+#                       GITHUB_TOKEN permission set is read-only
+#                       for all scopes, but the n3ary org default
+#                       is "read repository contents and packages,
+#                       nothing else", which strips actions: read.
+#                       That was the root cause of the silent
+#                       auto-deploy outage from 2026-07-11 to
+#                       2026-07-12 -- every build on main
+#                       produced zero deploy runs, and only the
+#                       fact that the upstream build's
+#                       `name:` field had been renamed (PR #188)
+#                       drew attention to it. PR #202 fixed the
+#                       `workflows:` filter, but the missing
+#                       actions: read was a separate, hidden
+#                       blocker. Tracked in #224.
+#   contents: read   -- to read github.event.workflow_run.* in
+#                       the job context. Default is included but
+#                       listed explicitly so the deploy workflow
+#                       keeps working if the org default ever
+#                       tightens further.
+#
+# Without this block, the deploy workflow is invisible to the
+# workflow_run webhook delivery path on this org.
+permissions:
+  actions: read
+  contents: read
+
 concurrency:
   group: deploy-gtfs-rt
   cancel-in-progress: true
