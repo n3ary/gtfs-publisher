@@ -42,6 +42,7 @@ import { makeAppRegistry } from './make-app-registry.js';
 import { validate } from './validate.js';
 import { smokeTestRemote } from './smoke-remote.js';
 import { buildDryRunGtfsZip } from './dry-run-fixture.js';
+import { readCsvFromZip } from './lib/read-csv-from-zip.js';
 import { UA } from './lib/http.js';
 import type { StaticExtension } from './lib/extension.js';
 import type { Feed, FeedEntry, FreshEntry, GtfsFile, ZipArtifact } from './lib/types.js';
@@ -69,17 +70,47 @@ function adapterPublisher(feedConfig: Record<string, unknown> | null): string | 
  * `staticExtension(feedConfig)` factory. The factory name is
  * stable across adapters; the orchestrator never branches on
  * feed id.
+ *
+ * Before calling the factory, the orchestrator walks the
+ * adapter's `producerExtensions` manifest (if any), reads each
+ * declared file from the GTFS zip via `readCsvFromZip`, and
+ * augments `feedConfig[feedConfigKey]` with the parsed rows.
+ * The orchestrator does NOT interpret the data — the adapter's
+ * `staticExtension()` is responsible for schema coercion
+ * (e.g. `priority: '3'` -> 3 when writing to SQLite). This is
+ * the contract that keeps the publisher feed-agnostic: adding a
+ * new producer extension is an adapter-only change.
  */
-async function buildStaticExtension(feedConfig: Record<string, unknown> | null): Promise<StaticExtension | undefined> {
+async function buildStaticExtension(
+  feedConfig: Record<string, unknown> | null,
+  gtfsPath: string | null,
+): Promise<StaticExtension | undefined> {
   const publisher = adapterPublisher(feedConfig);
   if (!publisher) return undefined;
   const mod = (await import(`${publisher}/static`)) as {
     staticExtension?: (cfg: Record<string, unknown>) => StaticExtension;
+    producerExtensions?: ReadonlyArray<{ fileName: string; feedConfigKey: string }>;
   };
   if (typeof mod.staticExtension !== 'function') {
     throw new Error(`${publisher}/static: must export a staticExtension(feedConfig) factory.`);
   }
-  return mod.staticExtension(feedConfig ?? {});
+  // Walk producerExtensions. The orchestrator treats the rows as
+  // opaque (`Record<string, string>`); the adapter is responsible
+  // for any type coercion when it writes to SQLite. Empty / missing
+  // files are skipped silently — the adapter's staticExtension is
+  // expected to handle absent keys gracefully (typically by
+  // registering the DDL but inserting no rows).
+  const augmented: Record<string, unknown> = { ...(feedConfig ?? {}) };
+  if (gtfsPath && existsSync(gtfsPath) && Array.isArray(mod.producerExtensions)) {
+    for (const { fileName, feedConfigKey } of mod.producerExtensions) {
+      const rows = await readCsvFromZip(gtfsPath, fileName);
+      if (rows.length > 0) {
+        augmented[feedConfigKey] = rows;
+        console.log(`[cli] ${fileName} — ${rows.length} row(s) -> feedConfig.${feedConfigKey}`);
+      }
+    }
+  }
+  return mod.staticExtension(augmented);
 }
 
 /**
@@ -110,7 +141,7 @@ function collectSecrets(feedId: string, feedConfig: Record<string, unknown> | nu
 }
 
 /**
- * Adapter-driven GTFS zip production. Dynamic-imports the adapter's
+ * Adapter-driven GTFS zip production. Dynamic-imports the adapter package's
  * `/ingest` subpath and calls its `ingestBuild({ outputDir, buildDate,
  * secrets })` entry. The orchestrator does not know what the adapter
  * does internally — it only passes through the staged outputDir,
@@ -268,7 +299,7 @@ async function main(): Promise<void> {
     // shipped a hash-versioned sqlite_gz for this feed, pass the previous
     // entry through. Bypassed when FORCE_REBUILD is set.
     //
-    // Adapter-driven feeds (cluj) don't have an upstream URL we can HEAD
+    // Adapter-driven feeds don't have an upstream URL we can HEAD
     // — fall back to FORCE_REBUILD-guarded unconditional rebuild.
     const prevEntry = prev.get(feed.id);
     const prevEtag = prevEntry?.source?.upstream_etag;
@@ -304,9 +335,9 @@ async function main(): Promise<void> {
       if (gtfs.localPath && existsSync(gtfs.localPath)) {
         // validate() used to be guarded on `source.type === 'remote'`
         // because adapter-driven feeds were assumed to be trustworthy.
-        // That assumption broke in July 2026 when a cluj-napoca adapter
-        // release emitted FK orphans and the daily cron happily shipped
-        // a corrupt feed. Run the validator for ALL feeds now — adapter
+        // That assumption broke in 2026 when an adapter release
+        // emitted FK orphans and the daily cron happily shipped a
+        // corrupt feed. Run the validator for ALL feeds now — adapter
         // and remote alike — and fail the build on any error.
         const { warnings } = validate(gtfs.localPath);
         for (const w of warnings) console.warn(`[validate] ${feed.id}: WARN ${w}`);
@@ -317,7 +348,13 @@ async function main(): Promise<void> {
       }
 
       const meta = deriveBbox(gtfs.localPath!);
-      const staticExtension = await buildStaticExtension(feedConfig);
+
+      // The StaticExtension factory receives the feedConfig
+      // (augmented with producer-extension rows from the zip, if
+      // the adapter declared any). The orchestrator does not
+      // know what those rows are — the adapter's
+      // `staticExtension()` does the schema interpretation.
+      const staticExtension = await buildStaticExtension(feedConfig, gtfs.localPath);
       const sqlite = await makeSqlite(gtfs.localPath!, feed.id, staticExtension);
 
       // Stage the GTFS zip into outputs/ as a content-addressed file
