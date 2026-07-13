@@ -240,13 +240,9 @@ const root = protobuf.parse(window.__GTFS_RT_PROTO__, { keepCase: true }).root;
 const FeedMessage = root.lookupType("transit_realtime.FeedMessage");
 
 const DEFAULTS = {
-  // Left = the Pages-Function-backed endpoint that the PWA hits
-  // at https://app.n3ary.com via /api/rt/<feed>/vehiclePositions.
-  // This is the historical pre-Hetzner path; the right URL is the
-  // replacement Hetzner origin so the diff surfaces any
-  // behavioural drift introduced by the new container.
-  left:  "https://app.n3ary.com/api/rt/cluj-napoca/vehiclePositions",
-  // Right = new Hetzner production (after the PR #132 cutover).
+  // Same endpoint on both sides: zero diff on first open.
+  // Edit either field for an ad-hoc two-feed compare.
+  left:  "https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions",
   right: "https://gtfs-rt.n3ary.com/rt/cluj-napoca/vehicle_positions",
 };
 
