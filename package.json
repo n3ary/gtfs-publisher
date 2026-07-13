@@ -1,6 +1,6 @@
 {
   "name": "neary-gtfs",
-  "version": "26.7.13-4",
+  "version": "26.7.13-5",
   "private": true,
   "type": "module",
   "description": "GTFS publisher: static + RT packages for the neary PWA.",
