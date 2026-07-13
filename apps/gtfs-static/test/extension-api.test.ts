@@ -264,6 +264,161 @@ describe('makeSqlite StaticExtension API', () => {
     }
   });
 
+  it('round-trips a 6-column producer extension (the gtfs-adapters#156 `_route_tags` shape)', async () => {
+    // Pins the producer-extension contract for the new 6-column shape
+    // (gtfs-adapters#156, the tag color column). Mirrors the 4-column
+    // test above but exercises the same path with 6 columns and
+    // asserts both the new `icon` and `color` columns carry through
+    // verbatim from the CSV through the SQLite INSERT.
+    //
+    // The 4-path contract this test pins (the "column-list-agnostic
+    // promise" the producer-extension machinery commits to):
+    //
+    //   1. `readCsvFromZip` (src/lib/read-csv-from-zip.ts) returns
+    //      `Record<string, string>[]` with every header in the file
+    //      as a key -- NO column allowlist, no filtering.
+    //   2. `buildStaticExtension` (src/cli.ts) hands the parsed rows
+    //      to the adapter verbatim via `augmented[feedConfigKey] = rows`.
+    //   3. The adapter's `staticExtension()` declares the column shape
+    //      via `tableExtensions[<name>].columns` (variable-length
+    //      ColumnSpec[]) and writes typed values.
+    //   4. `insertTableExtensionRows` (src/make-sqlite.ts) builds the
+    //      INSERT statement from the declared column list and runs it
+    //      with the typed values -- NO hard-coded column set, NO
+    //      filtering of values.
+    //
+    // The icon column from gtfs-adapters#154 already went through
+    // this path (proven by the live pipeline + the adapter's own
+    // static-extension tests). This test pins the contract for the
+    // color column so a future "validate column types at the
+    // publisher boundary" change can't accidentally drop producer
+    // columns the publisher doesn't recognize.
+    mkdirSync(WORK, { recursive: true });
+    const routeTagsZip = join(WORK, 'route-tags-color.gtfs.zip');
+    const out = createWriteStream(routeTagsZip);
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    await new Promise<void>((resolve, reject) => {
+      out.on('close', () => resolve());
+      archive.on('error', reject);
+      archive.pipe(out);
+      archive.append('agency_id,agency_name,agency_url,agency_timezone\nA1,Test,https://example.test,Europe/Bucharest\n', { name: 'agency.txt' });
+      archive.append('stop_id,stop_name,stop_lat,stop_lon\nS1,Central,46.0,23.0\nS2,North,46.1,23.1\n', { name: 'stops.txt' });
+      archive.append('route_id,agency_id,route_short_name,route_type\nR1,A1,1,3\nR2,A1,2,3\n', { name: 'routes.txt' });
+      archive.append('route_id,service_id,trip_id,direction_id\nR1,WK,R1_0_0,0\nR2,WK,R2_0_0,0\n', { name: 'trips.txt' });
+      archive.append('trip_id,arrival_time,departure_time,stop_id,stop_sequence\nR1_0_0,08:00:00,08:00:00,S1,1\nR2_0_0,09:00:00,09:00:00,S2,1\n', { name: 'stop_times.txt' });
+      archive.append('network_id,network_name\nN1,Demo\n', { name: 'networks.txt' });
+      archive.append('network_id,route_id\nN1,R1\nN1,R2\n', { name: 'route_networks.txt' });
+      // 6-column producer-extension artifact, matching the
+      // gtfs-adapters#156 shape. One row intentionally carries
+      // an empty `color` cell to exercise the null coercion path.
+      archive.append(
+        [
+          'tag_id,route_id,tag_label,priority,icon,color',
+          'night,R1,Noapte,0,moon,1A1F36',
+          'metroline,R2,Metropolitan,1,map-pin,2E7D5B',
+          'metroline,R1,Metropolitan,1,map-pin,',  // empty color -> NULL in SQLite
+          '',
+        ].join('\n'),
+        { name: '_route_tags.txt' },
+      );
+      archive.finalize();
+    });
+    mkdirSync(OUT_DIR, { recursive: true });
+
+    // Step 1 (orchestrator-side, generic): the publisher's
+    // feed-agnostic helper. Returns raw `Record<string, string>[]`
+    // -- the publisher does no schema interpretation. The 6
+    // headers all come back as keys (no allowlist).
+    const { readCsvFromZip } = await import('../src/lib/read-csv-from-zip.js');
+    const rawRows = await readCsvFromZip(routeTagsZip, '_route_tags.txt');
+    expect(rawRows).toEqual([
+      { tag_id: 'night', route_id: 'R1', tag_label: 'Noapte', priority: '0', icon: 'moon', color: '1A1F36' },
+      { tag_id: 'metroline', route_id: 'R2', tag_label: 'Metropolitan', priority: '1', icon: 'map-pin', color: '2E7D5B' },
+      { tag_id: 'metroline', route_id: 'R1', tag_label: 'Metropolitan', priority: '1', icon: 'map-pin', color: '' },
+    ]);
+
+    // Step 2 (adapter-side, simulated here): the adapter's
+    // `staticExtension` reads `feedConfig[feedConfigKey]` and writes
+    // a typed `tableExtension` with type coercion. We mirror
+    // gtfs-adapters#156's coercion exactly: priority -> INTEGER
+    // (defensive Number('') -> null), empty `icon` / `color` ->
+    // null. Same string-presence rule the adapter uses.
+    const feedConfig: { routeTags: Record<string, string>[] } = { routeTags: rawRows };
+    const coercedRows = feedConfig.routeTags.map((r) => {
+      const priorityRaw = r.priority?.trim() ?? '';
+      const priorityNum = priorityRaw === '' ? null : Number(priorityRaw);
+      return {
+        tag_id: r.tag_id ?? '',
+        route_id: r.route_id ?? '',
+        tag_label: r.tag_label && r.tag_label.length > 0 ? r.tag_label : null,
+        priority: priorityNum !== null && Number.isFinite(priorityNum) ? priorityNum : null,
+        icon: r.icon && r.icon.length > 0 ? r.icon : null,
+        color: r.color && r.color.length > 0 ? r.color : null,
+      };
+    });
+
+    // Step 3 (pipeline-side, generic): makeSqlite takes the
+    // 6-column tableExtension, runs the DDL, INSERTs the rows.
+    const { makeSqlite } = await import('../dist/make-sqlite.js');
+    const result = await makeSqlite(routeTagsZip, 'route-tags-color-roundtrip', {
+      tableExtensions: {
+        _route_tags: {
+          columns: [
+            ['tag_id', 'TEXT NOT NULL'],
+            ['route_id', 'TEXT NOT NULL'],
+            ['tag_label', 'TEXT'],
+            ['priority', 'INTEGER'],
+            ['icon', 'TEXT'],
+            ['color', 'TEXT'],
+          ],
+          rows: coercedRows,
+        },
+      },
+    });
+    expect(result).not.toBeNull();
+
+    // Step 4: verify the SQLite has the 6-column DDL + the coerced
+    // rows (including the empty-color -> NULL coercion).
+    const gz = readFileSync(result!.localPath);
+    const raw = gunzipSync(gz);
+    const dbPath = join(WORK, 'route-tags-color.sqlite3');
+    rmSync(dbPath, { force: true });
+    writeFileSync(dbPath, raw);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      // DDL: all 6 columns present in declared order, icon + color
+      // (the 2 new column-additive changes from #154 and #156) ride
+      // through the CREATE TABLE unchanged.
+      const tagColumns = db.prepare("PRAGMA table_info('_route_tags')").all() as Array<{ name: string; pk: number }>;
+      const colNames = tagColumns.map((c) => c.name);
+      expect(colNames).toEqual(['tag_id', 'route_id', 'tag_label', 'priority', 'icon', 'color']);
+      // The declared types landed too -- `color` is TEXT, not
+      // silently coerced to INTEGER or anything else.
+      const colorCol = tagColumns.find((c) => c.name === 'color');
+      expect(colorCol).toBeDefined();
+      expect(String(colorCol!.type)).toEqual('TEXT');
+
+      // Rows: the full round-trip, including the empty -> NULL
+      // coercion. Sorted by (route_id, priority) so the test is
+      // diff-stable -- night(0) on R1 comes before metroline(1)
+      // on R1, which is the editor's TAGS-declaration order
+      // (every-day first, event overlay after).
+      const rows = db.prepare(
+        'SELECT tag_id, route_id, tag_label, priority, icon, color FROM _route_tags ORDER BY route_id, priority',
+      ).all() as Array<{ tag_id: string; route_id: string; tag_label: string | null; priority: number; icon: string | null; color: string | null }>;
+      expect(rows).toEqual([
+        { tag_id: 'night',     route_id: 'R1', tag_label: 'Noapte',        priority: 0, icon: 'moon',    color: '1A1F36' },
+        { tag_id: 'metroline', route_id: 'R1', tag_label: 'Metropolitan', priority: 1, icon: 'map-pin', color: null },
+        { tag_id: 'metroline', route_id: 'R2', tag_label: 'Metropolitan', priority: 1, icon: 'map-pin', color: '2E7D5B' },
+      ]);
+      // 1:many invariant -- metroline appears on 2 routes.
+      const r1Count = db.prepare("SELECT COUNT(*) AS c FROM _route_tags WHERE route_id = 'R1'").get() as { c: number };
+      expect(r1Count.c).toBe(2);
+    } finally {
+      db.close();
+    }
+  });
+
   it('omitting extensions leaves the sqlite spec-only (no per-feed extras)', async () => {
     // The generic pipeline owns zero per-feed knowledge. A call
     // without an extension produces exactly the public GTFS
