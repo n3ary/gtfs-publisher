@@ -63,7 +63,7 @@ importers:
     dependencies:
       '@n3ary/gtfs-adapter-cluj-napoca':
         specifier: ^0.3.12
-        version: 0.3.13
+        version: 0.3.14
       '@n3ary/gtfs-spec':
         specifier: workspace:*
         version: link:../../libs/spec
@@ -331,8 +331,8 @@ packages:
     resolution: {integrity: sha512-2ao9kq4zQAaqhFpZEf8gg5eCHH6sx3diA4A/F5JdpnyzNz2GWcSbcTqLa11GN3CddQKxkwK3cHPc11eTUcWwmw==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.10/315c8493024f31d823554a13c782abad9256533f}
     engines: {node: '>=24'}
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.13':
-    resolution: {integrity: sha512-lOV62XrEfm09B1/HSIOWlh3hDqq8RS17S3P78c4Sw3Lx3bwOJTTtXnHteIHl5BvimXz3u2vXlHzvwMx3xyKa2g==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.13/4d1791ba050e15394d25e2542fe1885711fef0ea}
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.14':
+    resolution: {integrity: sha512-TLBeaVR8DCGUc7aot3KWYswk3syyKK+5dqTSs3l/spu29OhDm7Ah5U8UwznqGzyXHaqGMcO87oSMmyelUHbUJA==, tarball: https://npm.pkg.github.com/download/@n3ary/gtfs-adapter-cluj-napoca/0.3.14/b002f49d32d82ff626570e24a0e5cd8e4f6174ca}
     engines: {node: '>=24'}
 
   '@napi-rs/wasm-runtime@1.1.6':
@@ -1583,7 +1583,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  '@n3ary/gtfs-adapter-cluj-napoca@0.3.13':
+  '@n3ary/gtfs-adapter-cluj-napoca@0.3.14':
     dependencies:
       '@n3ary/gtfs-spec': link:libs/spec
       archiver: 8.0.0
