@@ -100,13 +100,14 @@ export type SchemaSpec = {
  *   2. stops          (self-ref parent_station, deferred)
  *   3. routes         (FK → agency)
  *   4. trips          (FK → routes; service_id NOT FK'd — see header)
- *   5. stop_times     (FK → trips, stops; composite PK)
- *   6. calendar       (no deps)
- *   7. calendar_dates (FK → calendar)
- *   8. shapes         (no deps)
- *   9. feed_info      (no deps)
- *  10. networks       (no deps)
- *  11. route_networks (FK → networks, routes)
+ *   5. frequencies    (FK → trips; only after trips exist for FK load)
+ *   6. stop_times     (FK → trips, stops; composite PK)
+ *   7. calendar       (no deps)
+ *   8. calendar_dates (FK → calendar)
+ *   9. shapes         (no deps)
+ *  10. feed_info      (no deps)
+ *  11. networks       (no deps)
+ *  12. route_networks (FK → networks, routes)
  *
  * Do not reorder without checking that the new order still satisfies
  * FKs.
@@ -267,6 +268,71 @@ export const SCHEMA: Record<string, SchemaSpec> = {
       ['trips_service_idx', '(service_id)'],
       ['trips_shape_idx', '(shape_id)'],
     ],
+  },
+  // frequencies.txt — When present, describes headway-based service:
+  // the anchor trip's stop_times are reused as offsets, and the
+  // frequencies row says "run every headway_secs from start_time to
+  // end_time". See https://gtfs.org/schedule/reference/#frequenciestxt.
+  // Declared after trips (the only FK target) so make-sqlite's
+  // PRAGMA foreign_keys = ON pass at apps/gtfs-static/src/make-sqlite.ts:106
+  // can resolve the reference. Per the spec the file is Conditionally
+  // Forbidden — REQUIRED_TABLES does not include it; the absent-file
+  // path in make-sqlite.ts:418 handles feeds that don't ship it.
+  frequencies: {
+    file: 'frequencies.txt',
+    columns: [
+      // Required. Foreign ID → trips.trip_id. ON DELETE CASCADE because
+      // dropping an anchor trip invalidates every frequencies row that
+      // references it; the cascaded delete matches the natural "drop
+      // the trip" semantics of the static pipeline.
+      ['trip_id', 'TEXT NOT NULL'],
+      // Required. HH:MM:SS (24h+ allowed for service crossing midnight).
+      // Same GLOB pattern stop_times uses (lines below) so consumers
+      // can rely on the same string-compare ordering for window math.
+      ['start_time', 'TEXT NOT NULL',
+        "CHECK(start_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR start_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
+      // Required. Same format as start_time. start_time < end_time is
+      // enforced as a table-level CHECK (window must be non-empty).
+      ['end_time', 'TEXT NOT NULL',
+        "CHECK(end_time GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]' OR end_time GLOB '[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]')"],
+      // Required. Seconds between departures. Spec: positive integer.
+      // A zero or negative headway would create an infinite loop in
+      // the app's frequencyExpansion helper, so the CHECK rejects it
+      // at INSERT time.
+      ['headway_secs', 'INTEGER NOT NULL',
+        'CHECK(headway_secs > 0)'],
+      // Optional. 0 = frequency-based (default; the common case), 1 =
+      // exact_times. The cluj-napoca adapter only emits 0 today. 1
+      // means the frequencies row exists but the trip is still
+      // schedule-based (rare; the spec allows it for legacy feeds).
+      // CHECK enforces the 0/1 spec enum so a bad adapter value fails
+      // loud.
+      ['exact_times', 'INTEGER',
+        'CHECK(exact_times IS NULL OR exact_times IN (0, 1))'],
+    ],
+    // Spec-mandated PK: a (trip_id, start_time) pair uniquely
+    // identifies a frequency interval. Two intervals for the same
+    // trip with different start_time are valid (e.g. "15 min
+    // 05:00-09:00" then "30 min 09:00-22:00"); (trip_id, end_time)
+    // is not unique because end_time alone is a function of
+    // start_time + window length, and two intervals can share an
+    // end_time too. PK also drives the dedupe in make-sqlite's
+    // plain-INSERT path (apps/gtfs-static/src/make-sqlite.ts:181-207).
+    tableConstraints: [
+      'PRIMARY KEY (trip_id, start_time)',
+      'CHECK(start_time < end_time)',
+    ],
+    foreignKeys: [
+      { columns: ['trip_id'], refTable: 'trips', refColumns: ['trip_id'], onDelete: 'CASCADE' },
+    ],
+    // The app's frequencyExpansion helper (n3ary/app#347) does
+    // `WHERE trip_id = ?` (one trip at a time) plus `WHERE service_id
+    // IN (...)` via a join to trips. The trip_id index is the access
+    // path that matters; the service-side filter goes through
+    // `trips_service_idx` (trips definition above). Keep the index
+    // set small — frequencies is tiny in practice (one row per
+    // anchor).
+    indexes: [['frequencies_trip_idx', '(trip_id)']],
   },
   // stop_times is 60-90% of a national GTFS sqlite by size. Two knobs:
   //   * Composite PK (trip_id, stop_sequence) is already the natural
