@@ -1,0 +1,4 @@
+{
+  "_comment": "OTL SA Oradea. Source: Transitous resolves mdb-2101 (MobilityDatabase 'Oradea Transport Local'). No RT siblings in Transitous ro.json — realtime will be null until OTL SA publishes GTFS-RT.",
+  "enhances": "Oradea"
+}
