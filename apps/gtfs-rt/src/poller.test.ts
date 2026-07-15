@@ -1,8 +1,9 @@
 /**
- * poller.test.ts — pins the per-feed poll-plan behavior so the
- * upstream / consumer split can't silently regress.
+ * poller.test.ts — pins the per-feed polling behavior so the
+ * parallel-fetch + conditional-reconcile design can't silently
+ * regress.
  *
- * Two pieces of behavior are pinned here:
+ * Three pieces of behavior are pinned here:
  *
  *   1. `realtime.upstream_vehicle_positions` is REQUIRED. A feed
  *      without it gets a no-op poll handle and a log warning. No
@@ -15,6 +16,12 @@
  *   2. The poll plan is `{ primary, extras[] }`, not a flat list
  *      of `{ role, url }` items. The "primary vs extra" split is
  *      a property of the plan, not a role tag on the URL.
+ *
+ *   3. The tick flow is parallel + conditional: every source is
+ *      fetched in one Promise.allSettled, then the tick decides
+ *      what to putClean based on how many succeeded. 0 -> keep
+ *      previous; 1 -> use it directly; >=2 -> reconcile. No
+ *      debounce, no per-URL setIntervals.
  *
  * Most assertions here are "code review as test" -- regex on the
  * poller.ts source -- to match the project's existing style (see
@@ -37,66 +44,80 @@ const POLLER_SRC = readFileSync(join(HERE, '..', 'src', 'poller.ts'), 'utf8');
 
 describe('poller: upstream_vehicle_positions is required (no vehicle_positions fallback)', () => {
   it('does NOT fall back to realtime.vehicle_positions when upstream_vehicle_positions is missing', () => {
-    // The previous implementation read
-    // `rt.upstream_vehicle_positions ?? rt.vehicle_positions` as a
-    // "transitional" crutch. That would re-introduce the circular
-    // dependency the split exists to avoid: the consumer slot
-    // (vehicle_positions) holds the proxy URL, so polling it
-    // would have the server poll itself.
     expect(POLLER_SRC).not.toMatch(
       /upstream_vehicle_positions\s*\?\?\s*(?:rt\.)?vehicle_positions/,
     );
   });
 
-  it('reads only realtime.upstream_vehicle_positions (single read, no ?? fallback)', () => {
-    // The buildPollPlan() function is the single source of truth
-    // for "what URL the server polls" -- and it reads ONE field,
-    // upstream_vehicle_positions, with no fallback chain. (The
-    // `?? []` on extra_vehicle_positions is fine -- that field is
-    // optional, not the served URL.)
+  it('reads only realtime.upstream_vehicle_positions in buildPollPlan (single read, no ?? fallback)', () => {
     const planBlock = POLLER_SRC.match(/buildPollPlan[\s\S]*?^}/m);
     expect(planBlock).not.toBeNull();
     expect(planBlock![0]).toMatch(/upstream_vehicle_positions/);
-    // Specifically: no `upstream_vehicle_positions ?? ...` chain.
     expect(planBlock![0]).not.toMatch(/upstream_vehicle_positions\s*\?\?/);
   });
 
   it('logs a clear warning + returns a no-op handle when upstream_vehicle_positions is missing', () => {
-    // A feed without upstream_vehicle_positions is treated as
-    // "no realtime" -- not an error, not a fallback to
-    // vehicle_positions, just a logged warning + no-op handle.
     expect(POLLER_SRC).toMatch(
       /no realtime\.upstream_vehicle_positions; not polling/,
     );
   });
 });
 
-describe('poller: plan shape is { primary, extras[] }, not { role, url }[]', () => {
-  it('declares the PollPlan interface with primary + extras, not role', () => {
-    // The old plan shape was a flat list of { role, url }. The
-    // new plan is { primary, extras } so the served URL is
-    // explicit, not a role tag on the URL.
+describe('poller: plan shape is { primary, extras[] }', () => {
+  it('declares the PollPlan interface with primary + extras', () => {
     const planIface = POLLER_SRC.match(/interface\s+PollPlan[\s\S]*?^}/m);
     expect(planIface).not.toBeNull();
     expect(planIface![0]).toMatch(/primary:\s*string/);
     expect(planIface![0]).toMatch(/extras:\s*string\[\]/);
-    expect(planIface![0]).not.toMatch(/role/);
+  });
+});
+
+describe('poller: parallel fetch + conditional reconcile', () => {
+  it('fetches every source with one Promise.allSettled (no per-URL setInterval)', () => {
+    // The cycle is the unit of freshness. Each tick fetches
+    // every URL in parallel and waits for all to settle.
+    // The old design had one setInterval per URL which made
+    // the cycle implicit and racy.
+    expect(POLLER_SRC).toMatch(/Promise\.allSettled\(/);
+    // Only ONE setInterval call -- one per feed, not N.
+    const setIntervalMatches = POLLER_SRC.match(/setInterval\(/g) ?? [];
+    expect(setIntervalMatches).toHaveLength(1);
   });
 
-  it('derives the role from url === plan.primary, not from a stored role tag on the URL', () => {
-    // The makeTick factory receives `isPrimary: boolean` and
-    // derives the role for putSource. The role string is a
-    // stored attribute on the per-URL source record, not a
-    // control-flow tag on the URL.
-    expect(POLLER_SRC).toMatch(/const\s+isPrimary\s*=\s*url\s*===\s*plan\.primary/);
-    expect(POLLER_SRC).toMatch(/const\s+role:\s*'primary'\s*\|\s*'extra'\s*=\s*isPrimary\s*\?\s*'primary'\s*:\s*'extra'/);
+  it('does NOT use a debounce or per-URL scheduleReconciliation', () => {
+    // The first cut used N independent setIntervals + a
+    // debounce timer to coalesce them. That added 500ms
+    // staleness for no real win -- the merge is cheap and
+    // the per-cycle parallel fetch is structurally
+    // deterministic. The new design is debounce-free.
+    expect(POLLER_SRC).not.toMatch(/scheduleReconciliation/);
+    expect(POLLER_SRC).not.toMatch(/RECONCILE_DEBOUNCE_MS/);
+    expect(POLLER_SRC).not.toMatch(/reconciliationTimers/);
   });
 
-  it('iterates [plan.primary, ...plan.extras] in startPolling', () => {
-    // The polling loop iterates the served URL first, then the
-    // extras. The order doesn't affect correctness (each URL has
-    // its own setInterval) but it makes the served URL obvious
-    // in logs.
-    expect(POLLER_SRC).toMatch(/for\s*\(\s*const\s+url\s+of\s+\[plan\.primary,\s*\.\.\.plan\.extras\]\s*\)/);
+  it('guards against stacked ticks when a cycle runs longer than intervalMs', () => {
+    // A 10 s per-fetch timeout on a slow upstream can stretch
+    // a cycle beyond the 15 s interval. The in-flight guard
+    // drops the second tick; the next slot picks up the work.
+    expect(POLLER_SRC).toMatch(/inFlight/);
+  });
+
+  it('decides the putClean path by valid.length (0, 1, or >=2)', () => {
+    // 0 sources succeeded -> keep previous putClean, log error.
+    // 1 source succeeded -> putClean that source's bytes
+    //   directly, no merge work.
+    // >=2 sources succeeded -> reconcile() then putClean.
+    expect(POLLER_SRC).toMatch(/if\s*\(\s*valid\.length\s*===\s*0\s*\)/);
+    expect(POLLER_SRC).toMatch(/if\s*\(\s*valid\.length\s*===\s*1\s*\)/);
+    // The >=2 branch is the final `reconcile(valid)` call after
+    // the two early returns.
+    expect(POLLER_SRC).toMatch(/reconcile\(valid\)/);
+  });
+
+  it('clears the interval on stop() (and the no-op handle is honest about it)', () => {
+    // The real stop() must clearInterval. The no-op
+    // `stop: () => {}` for the no-plan case is fine -- the
+    // handle is returned before any setInterval is created.
+    expect(POLLER_SRC).toMatch(/clearInterval\(handle\)/);
   });
 });
