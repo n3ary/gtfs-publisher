@@ -1,6 +1,6 @@
 {
   "name": "@gtfs/static",
-  "version": "26.7.15-1",
+  "version": "26.7.15-2",
   "private": true,
   "description": "Static GTFS -> SQLite + feeds.json registry pipeline. Cron-triggered via GitHub Actions.",
   "type": "module",
