@@ -26,15 +26,14 @@ import { spawnSync } from 'node:child_process';
 
 import { parseCsv, type CsvRow } from './lib/csv.js';
 
-const REQUIRED_FILES = ['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt'];
+const REQUIRED_FILES = ['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt'];
 const REQUIRED_COLUMNS: Record<string, string[]> = {
-  'agency.txt':         ['agency_name', 'agency_url', 'agency_timezone'],
-  'routes.txt':         ['route_id', 'route_type'],
-  'stops.txt':          ['stop_id', 'stop_lat', 'stop_lon'],
-  'trips.txt':          ['route_id', 'service_id', 'trip_id'],
-  'stop_times.txt':     ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'],
-  'calendar.txt':       ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
-  'calendar_dates.txt': ['service_id', 'date', 'exception_type'],
+  'agency.txt':     ['agency_name', 'agency_url', 'agency_timezone'],
+  'routes.txt':     ['route_id', 'route_type'],
+  'stops.txt':      ['stop_id', 'stop_lat', 'stop_lon'],
+  'trips.txt':      ['route_id', 'service_id', 'trip_id'],
+  'stop_times.txt': ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'],
+  'calendar.txt':   ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
 };
 
 function readEntry(zipPath: string, entryName: string): string | null {
@@ -75,6 +74,22 @@ export function validate(zipPath: string): { warnings: string[] } {
       }
     }
   }
+  if (errors.length > 0) throwReport(zipPath, errors, warnings);
+
+  // ---- calendar_dates.txt: optional per GTFS spec (calendar OR calendar_dates
+  //     defines services) — load only if present and validate its columns ----
+  const calDatesText = readEntry(zipPath, 'calendar_dates.txt');
+  if (calDatesText !== null) {
+    const calDatesRows = parseCsv(calDatesText);
+    const calDatesHeader = calDatesRows.length > 0
+      ? Object.keys(calDatesRows[0]!)
+      : calDatesText.split('\n')[0]!.split(',');
+    for (const col of ['service_id', 'date', 'exception_type']) {
+      if (!calDatesHeader.includes(col)) E(`calendar_dates.txt: missing required column "${col}"`);
+    }
+    tables['calendar_dates.txt'] = calDatesRows;
+  }
+
   if (errors.length > 0) throwReport(zipPath, errors, warnings);
 
   // ---- cross-reference checks ----
