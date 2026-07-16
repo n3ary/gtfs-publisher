@@ -184,6 +184,11 @@ describe('resolve-feeds: end-to-end merge', () => {
           type: 'mobility-database',
           'mdb-id': '2868',
         },
+        {
+          name: 'Brasov',
+          type: 'mobility-database',
+          'mdb-id': '2143',
+        },
       ],
     };
 
@@ -194,6 +199,7 @@ describe('resolve-feeds: end-to-end merge', () => {
         urls: { direct_download: 'https://cluj-rt-feed.gtfs.ro/vehiclePositions' },
         entity_type: ['vp'],
       },
+      'mdb-2143.json': {}, // Brasov — static only, no RT
     };
 
     // Capture the GitHub tree call too -- the mdb-rt module
@@ -219,6 +225,9 @@ describe('resolve-feeds: end-to-end merge', () => {
       }
       if (url.includes('mdb-1234.json')) {
         return new Response(JSON.stringify(mdbCatalog['mdb-1234.json']));
+      }
+      if (url.includes('mdb-2143.json')) {
+        return new Response(JSON.stringify(mdbCatalog['mdb-2143.json']));
       }
       throw new Error(`unexpected fetch: ${url}`);
     });

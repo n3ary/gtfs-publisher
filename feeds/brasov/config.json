@@ -1,0 +1,4 @@
+{
+  "_comment": "RAT Brașov (Regia Autonomă de Transport Brașov). Source: Transitous resolves mdb-2143 (MobilityDatabase 'Brasov'). No RT siblings in Transitous ro.json — realtime will be null until RAT publishes GTFS-RT. The MDB entry points to an OSM-derived feed (osm2gtfs); RAT Brașov does not publish an official GTFS feed.",
+  "enhances": "Brasov"
+}
