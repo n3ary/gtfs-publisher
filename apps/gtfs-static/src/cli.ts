@@ -229,7 +229,7 @@ const PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL ?? DEFAULT_PUBLIC_BASE_U
 const PREV_REGISTRY_URL = `${PUBLIC_BASE_URL}/feeds.json`;
 
 type PrevEntry = {
-  source?: { upstream_etag?: string };
+  source?: { upstream_etag?: string; zip_hash?: string };
   files?: { sqlite_gz?: string; gtfs_zip?: string };
 };
 
@@ -295,42 +295,72 @@ async function main(): Promise<void> {
   for (const feed of feeds) {
     console.log(`\n=== ${feed.id} (${feed.source.type}) ===`);
 
-    // Skip-on-unchanged: if upstream ETag is unchanged AND we already
-    // shipped a hash-versioned sqlite_gz for this feed, pass the previous
-    // entry through. Bypassed when FORCE_REBUILD is set.
-    //
-    // Adapter-driven feeds don't have an upstream URL we can HEAD
-    // — fall back to FORCE_REBUILD-guarded unconditional rebuild.
+    // Skip-on-unchanged: adapter feeds compare zip hash; URL feeds compare ETag.
     const prevEntry = prev.get(feed.id);
-    const prevEtag = prevEntry?.source?.upstream_etag;
     const prevFile = prevEntry?.files?.sqlite_gz;
     const hashedFilename = typeof prevFile === 'string' &&
-      new RegExp(`^${feed.id.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}-[0-9a-f]{12}\\.sqlite3\\.gz$`).test(prevFile);
-    const currentEtag = feed.source.upstream_url
-      ? await fetchUpstreamEtag(feed.source.upstream_url)
-      : null;
+      new RegExp(`^${feed.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-[0-9a-f]{12}\\.sqlite3\\.gz$`).test(prevFile);
     const forceRebuild = !!process.env.FORCE_REBUILD;
-    if (!forceRebuild && currentEtag && prevEtag && currentEtag === prevEtag && hashedFilename) {
-      console.log(`[cli] ${feed.id}: upstream unchanged (ETag ${currentEtag}) — reusing previous build`);
+
+    let gtfs: GtfsFile | null = null;
+    let skipReason: string | null = null;
+
+    if (feed.source.type === 'adapter') {
+      // Adapter feeds: ingestBuild runs every time; skip sqlite generation if zip hash unchanged.
+      gtfs = await acquireGtfs(feed, { stageDir: join(OUTPUTS, 'stage', feed.id), feedConfig: loadFeedConfig(feed.id) });
+      feed._currentZipHash = gtfs.hash ?? null;
+      feed._currentEtag = null;
+
+      const prevZipHash = prevEntry?.source?.zip_hash;
+      if (!forceRebuild && prevZipHash && gtfs.hash === prevZipHash && hashedFilename) {
+        skipReason = `zip unchanged (${gtfs.hash})`;
+      } else if (forceRebuild && prevZipHash && gtfs.hash === prevZipHash) {
+        console.log(`[cli] ${feed.id}: zip unchanged (${gtfs.hash}) but FORCE_REBUILD set — rebuilding`);
+      } else if (prevZipHash && gtfs.hash === prevZipHash && !hashedFilename) {
+        console.log(`[cli] ${feed.id}: zip unchanged but previous entry has legacy filename shape — rebuilding to migrate`);
+      } else if (prevZipHash && gtfs.hash !== prevZipHash) {
+        console.log(`[cli] ${feed.id}: zip changed (${prevZipHash} -> ${gtfs.hash}) — rebuilding`);
+      } else if (!prevZipHash) {
+        console.log(`[cli] ${feed.id}: no previous zip hash — building`);
+      }
+    } else {
+      // URL-based feed: lightweight HTTP HEAD for ETag comparison.
+      feed._currentEtag = feed.source.upstream_url
+        ? await fetchUpstreamEtag(feed.source.upstream_url)
+        : null;
+      const prevEtag = prevEntry?.source?.upstream_etag;
+      const currentEtag = feed._currentEtag;
+
+      if (!forceRebuild && currentEtag && prevEtag && currentEtag === prevEtag && hashedFilename) {
+        skipReason = `upstream unchanged (ETag ${currentEtag})`;
+      } else if (forceRebuild && prevEtag && currentEtag === prevEtag) {
+        console.log(`[cli] ${feed.id}: upstream unchanged (ETag ${currentEtag}) but FORCE_REBUILD set — rebuilding`);
+      } else if (prevEtag && currentEtag === prevEtag && !hashedFilename) {
+        console.log(`[cli] ${feed.id}: upstream unchanged but previous entry has legacy filename shape — rebuilding to migrate`);
+      } else if (prevEtag && currentEtag) {
+        console.log(`[cli] ${feed.id}: upstream changed (${prevEtag} -> ${currentEtag}) — rebuilding`);
+      } else if (prevEtag && !currentEtag) {
+        console.log(`[cli] ${feed.id}: upstream ETag disappeared — rebuilding`);
+      } else if (!prevEtag) {
+        console.log(`[cli] ${feed.id}: no previous ETag — building`);
+      }
+    }
+
+    if (skipReason) {
+      console.log(`[cli] ${feed.id}: ${skipReason} — reusing previous build`);
       entries.push({ reused: true, prevEntry });
       reused++;
       continue;
     }
-    if (forceRebuild && prevEtag && currentEtag === prevEtag) {
-      console.log(`[cli] ${feed.id}: upstream unchanged (ETag ${currentEtag}) but FORCE_REBUILD set — rebuilding`);
-    } else if (prevEtag && currentEtag === prevEtag && !hashedFilename) {
-      console.log(`[cli] ${feed.id}: upstream unchanged but previous entry has legacy filename shape — rebuilding to migrate`);
-    } else if (prevEtag && currentEtag) {
-      console.log(`[cli] ${feed.id}: upstream changed (${prevEtag} → ${currentEtag}) — rebuilding`);
-    } else if (prevEtag) {
-      console.log(`[cli] ${feed.id}: no upstream ETag (adapter-driven); previous entry available — rebuilding`);
-    }
-    feed._currentEtag = currentEtag;
 
     try {
       const stageDir = join(OUTPUTS, 'stage', feed.id);
       const feedConfig = loadFeedConfig(feed.id);
-      const gtfs = await acquireGtfs(feed, { stageDir, feedConfig });
+
+      // Adapter feeds already called acquireGtfs above; reuse that result.
+      if (!gtfs) {
+        gtfs = await acquireGtfs(feed, { stageDir, feedConfig });
+      }
 
       if (gtfs.localPath && existsSync(gtfs.localPath)) {
         // validate() used to be guarded on `source.type === 'remote'`
@@ -367,6 +397,7 @@ async function main(): Promise<void> {
       const fresh: FreshEntry = {
         feed, gtfs, zip, sqlite,
         upstreamEtag: feed._currentEtag ?? null,
+        zipHash: feed._currentZipHash ?? null,
         ...meta,
       };
       entries.push(fresh);

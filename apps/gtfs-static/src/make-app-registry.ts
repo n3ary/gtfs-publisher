@@ -45,6 +45,7 @@ export function makeAppRegistry(feedEntries: FeedEntry[]): unknown {
         source: {
           ...f.source,
           ...(e.upstreamEtag ? { upstream_etag: e.upstreamEtag } : {}),
+          ...(e.zipHash ? { zip_hash: e.zipHash } : {}),
         },
         files: {
           // Filename embeds first 12 hex of the hash — content-addressed
