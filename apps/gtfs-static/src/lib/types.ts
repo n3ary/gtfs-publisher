@@ -20,6 +20,8 @@ export type FeedSource = {
   publisher: string;
   upstream_url: string | null;
   upstream_etag?: string | null;
+  /** SHA256 of the adapter-produced GTFS zip. Used for skip-on-unchanged on adapter feeds. */
+  zip_hash?: string | null;
 };
 
 export type Feed = {
@@ -35,6 +37,8 @@ export type Feed = {
   license: License;
   _smoke?: { expectedPublisher?: string; tripIdPattern?: string } | null;
   _currentEtag?: string | null;
+  /** Set by cli.ts for adapter feeds: sha256 of the current ingestBuild zip. */
+  _currentZipHash?: string | null;
 };
 
 export type DerivedMeta = {
@@ -75,6 +79,8 @@ export type FreshEntry = {
   zip: ZipArtifact | null;
   sqlite: SqliteFile | null;
   upstreamEtag: string | null;
+  /** SHA256 of the adapter-produced GTFS zip. Stored in registry for skip-on-unchanged. */
+  zipHash: string | null;
 } & DerivedMeta;
 
 export type ReusedEntry = {

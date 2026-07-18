@@ -76,7 +76,8 @@
             "type":          { "enum": ["transitous", "mobility-database", "remote", "adapter"] },
             "publisher":     { "type": "string", "minLength": 1 },
             "upstream_url":  { "type": ["string", "null"], "format": "uri", "description": "URL of the upstream zip. For type=transitous/mobility-database, the resolved Transitous mirror; for type=remote, the externally-built GTFS zip declared in feeds/<id>/config.json source.url." },
-            "upstream_etag": { "type": ["string", "null"], "description": "HTTP ETag of upstream zip. Used to skip download + convert when upstream hasn't changed." }
+            "upstream_etag": { "type": ["string", "null"], "description": "HTTP ETag of upstream zip. Used to skip download + convert when upstream hasn't changed." },
+            "zip_hash":     { "type": ["string", "null"], "description": "SHA256 of the adapter-produced GTFS zip. Used to skip rebuild when the adapter zip hasn't changed." }
           }
         },
         "files": {
