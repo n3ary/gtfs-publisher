@@ -33,6 +33,26 @@ overrides:
   # pnpm 11 still flags as deprecated. ^13 keeps us on the
   # maintained line and gives inflight the boot.
   glob: ^13.0.6
+  # Dependabot alerts — all transitive, no upstream range yet
+  # admits a patched release. Closes alerts #8-11:
+  #   #8  protobufjs    CVE-2026-59877 (DoS via infinite loop in
+  #                    .proto option parsing) - 7.6.4 -> 7.6.5
+  #   #9  fast-uri      CVE-2026-16221 (host confusion via literal
+  #                    backslash authority delimiter) - 3.1.3 -> 3.1.4
+  #   #10 find-my-way   CVE-2026-47219 (DDoS with HTTP2) - 9.6.0 -> 9.7.0
+  #   #11 brace-expansion CVE-2026-14257 (DoS via unbounded expansion
+  #                    length) - 5.0.7 -> 5.0.8
+  # Only the 5.x line of brace-expansion is pulled in here, so a
+  # single `^5.0.8` override suffices. (gtfs-adapters also pulls
+  # 2.x via CJS minimatch and needs the selector form - see that
+  # repo's pnpm-workspace.yaml for the per-major pins.)
+  # Drop these once upstream ranges admit the patched versions
+  # (ajv for fast-uri, fastify for find-my-way, tailwindcss for
+  # protobufjs via vite-plugin-pwa for brace-expansion).
+  protobufjs: ^7.6.5
+  fast-uri: ^3.1.4
+  find-my-way: ^9.7.0
+  brace-expansion: ^5.0.8
 
 allowBuilds:
   better-sqlite3: true
