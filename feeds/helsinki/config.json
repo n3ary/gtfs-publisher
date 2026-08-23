@@ -1,0 +1,45 @@
+{
+  "id": "helsinki",
+  "enhances": "Helsinki",
+  "source": {
+    "type": "adapter",
+    "publisher": "@n3ary/gtfs-adapter-helsinki"
+  },
+  "secrets": [],
+  "license": {
+    "attribution_text": "Data from Helsinki Regional Transport (HSL) open data, licensed CC BY 4.0",
+    "attribution_url": "https://www.hsl.fi/en/hsl/open-data"
+  },
+  "smoke": {
+    "expectedPublisher": "@n3ary/gtfs-adapter-helsinki",
+    "tripIdPattern": "^hsl:[A-Z0-9]+:\\d{8}:\\d{2}:\\d{2}:\\d{2}:[01]$"
+  },
+  "realtime": {
+    "upstream_vehicle_positions": "https://realtime.hsl.fi/realtime/vehicle-positions/v2/hsl",
+    "upstream_trip_updates": "https://realtime.hsl.fi/realtime/trip-updates/v2/hsl",
+    "upstream_service_alerts": "https://realtime.hsl.fi/realtime/service-alerts/v2/hsl"
+  },
+  "timing": {
+    "_comment": "HSL-defaulted travel-time assumptions. HSL is dense urban with a metro backbone + heavy tram + bus frequency, so peak speeds are higher than cluj's. These are starting values; replace with observed per-segment speeds once we have enough RT history.",
+    "speed_kmh": {
+      "peak": 22,
+      "offpeak": 28,
+      "night": 32
+    },
+    "peak_windows": [
+      {
+        "from": "07:00",
+        "to": "09:00"
+      },
+      {
+        "from": "15:30",
+        "to": "17:30"
+      }
+    ],
+    "night_window": {
+      "from": "23:00",
+      "to": "05:30"
+    },
+    "dwell_sec": 25
+  }
+}
