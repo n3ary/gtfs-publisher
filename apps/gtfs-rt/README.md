@@ -80,9 +80,10 @@ These declare:
 - `license` (attribution text + URL)
 - `smoke` (post-fetch contract checks)
 - `timing` (bus/travel calibrations)
-- `realtime.vehicle_positions` (the primary URL the proxy polls)
-- `realtime.extra_vehicle_positions[]` (additional URLs, polled + stored;
-  not yet served; reconciliation lands in a follow-up PR)
+- `realtime.upstream_vehicle_positions` (the primary URL the proxy polls)
+- `realtime.extra_vehicle_positions[]` (additional URLs, polled + stored
+  + reconciled into the served stream via per-vehicle freshest-wins
+  merge; see `apps/gtfs-rt/src/reconcile.ts`)
 
 `gtfs-static` reads these at build time, asks each adapter's `static`
 subpath for the parts the adapter owns, and emits `feeds.json` to the
