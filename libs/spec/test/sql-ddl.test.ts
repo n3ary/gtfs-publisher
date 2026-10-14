@@ -3,12 +3,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { SCHEMA, SCHEMA_SQL, REQUIRED_TABLES } from '../src/sql/ddl.js';
 
 describe('SCHEMA', () => {
-  it('covers the 9 standard GTFS Schedule tables', () => {
+  it('covers the 10 standard GTFS Schedule tables', () => {
+    // 9 from the original spec + frequencies (added for the
+    // frequency-based trip support that n3ary/app#347 consumes).
     const expected = [
       'agency',
       'stops',
       'routes',
       'trips',
+      'frequencies',
       'stop_times',
       'calendar',
       'calendar_dates',
@@ -79,7 +82,7 @@ describe('SCHEMA_SQL', () => {
     }
   });
 
-  it('creates all 9 standard tables', () => {
+  it('creates all 10 standard tables', () => {
     const db = new DatabaseSync(':memory:');
     try {
       db.exec(SCHEMA_SQL);
@@ -89,7 +92,7 @@ describe('SCHEMA_SQL', () => {
       const names = tables.map((r) => r.name);
       for (const table of [
         'agency', 'calendar', 'calendar_dates', 'feed_info',
-        'routes', 'shapes', 'stop_times', 'stops', 'trips',
+        'frequencies', 'routes', 'shapes', 'stop_times', 'stops', 'trips',
       ]) {
         expect(names).toContain(table);
       }
@@ -108,7 +111,7 @@ describe('SCHEMA_SQL', () => {
       const names = indexes.map((r) => r.name);
       for (const idx of ['routes_agency_idx', 'trips_route_idx', 'trips_service_idx',
         'trips_shape_idx', 'stop_times_stop_idx', 'calendar_dates_service_date_idx',
-        'shapes_id_seq_idx']) {
+        'frequencies_trip_idx', 'shapes_id_seq_idx']) {
         expect(names).toContain(idx);
       }
     } finally {
@@ -249,6 +252,78 @@ describe('CHECK constraints (Layer 2: per-row invariants)', () => {
       expect(() =>
         db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20261231','20260701')").run()
       ).toThrow(/CHECK constraint failed: start_date/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects frequencies.headway_secs <= 0', () => {
+    // A non-positive headway would create an infinite loop in the
+    // app's frequencyExpansion helper (n3ary/app#347). The CHECK
+    // rejects it at INSERT time rather than letting the bad row reach
+    // the client.
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      db.prepare("INSERT INTO routes (route_id, route_type) VALUES ('R1', 3)").run();
+      db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R1', 'SVC')").run();
+      // headway_secs = 0
+      expect(() =>
+        db.prepare("INSERT INTO frequencies (trip_id, start_time, end_time, headway_secs) VALUES ('T1', '05:00:00', '22:00:00', 0)").run()
+      ).toThrow(/CHECK constraint failed: headway_secs/);
+      // headway_secs negative
+      expect(() =>
+        db.prepare("INSERT INTO frequencies (trip_id, start_time, end_time, headway_secs) VALUES ('T1', '05:00:00', '22:00:00', -60)").run()
+      ).toThrow(/CHECK constraint failed: headway_secs/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects frequencies.exact_times not in {0, 1}', () => {
+    // The spec enum is 0 (frequency-based) or 1 (schedule-based with a
+    // frequencies row). 2 is a bad adapter value; the CHECK surfaces
+    // it loud.
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      db.prepare("INSERT INTO routes (route_id, route_type) VALUES ('R1', 3)").run();
+      db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R1', 'SVC')").run();
+      expect(() =>
+        db.prepare("INSERT INTO frequencies (trip_id, start_time, end_time, headway_secs, exact_times) VALUES ('T1', '05:00:00', '22:00:00', 600, 2)").run()
+      ).toThrow(/CHECK constraint failed: exact_times/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects frequencies with start_time >= end_time', () => {
+    // The window must be non-empty — a zero-length or negative
+    // window would generate zero departures in the app's expansion
+    // helper, but the spec implies a valid window. Catching it at
+    // INSERT time keeps the bad row out of the SQLite blob.
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(SCHEMA_SQL);
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.prepare("INSERT INTO agency (agency_name, agency_url, agency_timezone) VALUES ('A','https://a','UTC')").run();
+      db.prepare("INSERT INTO calendar (service_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date) VALUES ('SVC', 1,1,1,1,1,0,0,'20260701','20261231')").run();
+      db.prepare("INSERT INTO routes (route_id, route_type) VALUES ('R1', 3)").run();
+      db.prepare("INSERT INTO trips (trip_id, route_id, service_id) VALUES ('T1', 'R1', 'SVC')").run();
+      // start_time == end_time (zero-length window)
+      expect(() =>
+        db.prepare("INSERT INTO frequencies (trip_id, start_time, end_time, headway_secs) VALUES ('T1', '05:00:00', '05:00:00', 600)").run()
+      ).toThrow(/CHECK constraint failed: start_time/);
+      // start_time > end_time (negative window)
+      expect(() =>
+        db.prepare("INSERT INTO frequencies (trip_id, start_time, end_time, headway_secs) VALUES ('T1', '22:00:00', '05:00:00', 600)").run()
+      ).toThrow(/CHECK constraint failed: start_time/);
     } finally {
       db.close();
     }
