@@ -66,7 +66,7 @@
   },
   "devDependencies": {
     "typescript": "^6.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.12"
   },
   "license": "PolyForm-Noncommercial-1.0.0"
 }
