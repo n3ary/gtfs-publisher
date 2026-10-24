@@ -31,7 +31,7 @@
     "@types/archiver": "^8.0.0",
     "@types/node": "^26.0.0",
     "typescript": "^6.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.12"
   },
   "license": "PolyForm-Noncommercial-1.0.0"
 }
