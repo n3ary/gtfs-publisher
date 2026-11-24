@@ -17,6 +17,10 @@ packages:
 # most-specific syntax — it doesn't trigger the cross-package
 # resolution path that perturbates vitest's peer resolution.
 overrides:
+  # GHSA-g3hv-75wg-m249 (minimatch DoS via globparts amplification).
+  # 10.2.5 -> 11.0.1. Only the 10.x line is inside the advisory range,
+  # so the >=10 selector leaves any older major line alone.
+  minimatch@>=10: ^11.0.1
   '@n3ary/gtfs-spec': workspace:*
   # protobufjs-cli@1.3.3 (transitive via gtfs-realtime-bindings) lists
   # `glob: ^8`, which transitively pulls in inflight@1.0.6 - both
@@ -32,7 +36,7 @@ overrides:
   # time of writing); glob@10/11/12 are intermediate majors that
   # pnpm 11 still flags as deprecated. ^13 keeps us on the
   # maintained line and gives inflight the boot.
-  glob: ^13.0.6
+  glob: ^14.0.2
   # Dependabot alerts — all transitive, no upstream range yet
   # admits a patched release. Each entry names the advisory it clears
   # and the path the package enters the tree by.
