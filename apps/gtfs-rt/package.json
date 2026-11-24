@@ -13,7 +13,7 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@fastify/cors": "^10.0.1",
+    "@fastify/cors": "^11.4.3",
     "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.10",
     "@n3ary/gtfs-spec": "workspace:*",
     "fastify": "^5.12.5",
