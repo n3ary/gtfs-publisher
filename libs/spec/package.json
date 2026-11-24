@@ -61,7 +61,7 @@
   "homepage": "https://github.com/n3ary/gtfs-publisher#readme",
   "dependencies": {
     "csv-parse": "^7.0.1",
-    "csv-stringify": "^6.8.1",
+    "csv-stringify": "^6.9.0",
     "zod": "^4.4.0"
   },
   "devDependencies": {
