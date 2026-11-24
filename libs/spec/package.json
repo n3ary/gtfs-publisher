@@ -61,12 +61,12 @@
   "homepage": "https://github.com/n3ary/gtfs-publisher#readme",
   "dependencies": {
     "csv-parse": "^7.0.1",
-    "csv-stringify": "^6.8.1",
+    "csv-stringify": "^6.9.0",
     "zod": "^4.4.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.0",
-    "vitest": "^4.1.12"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   },
   "license": "PolyForm-Noncommercial-1.0.0"
 }
