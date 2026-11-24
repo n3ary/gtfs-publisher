@@ -18,7 +18,7 @@
     "@n3ary/gtfs-spec": "workspace:*",
     "fastify": "^5.12.5",
     "gtfs-realtime-bindings": "^1.1.1",
-    "pino": "^9.4.0",
+    "pino": "^10.4.0",
     "pino-pretty": "^11.2.2",
     "protobufjs": "^7.4.0",
     "zod": "^4.4.0"
