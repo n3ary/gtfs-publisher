@@ -1,10 +1,31 @@
 version: 2
+
+# The @n3ary scope is served from GitHub Packages (npm.pkg.github.com),
+# not from npmjs. Without this registry entry Dependabot has no
+# credentials for that registry, so every npm update job dies with
+# "Permission permission_denied: read_package" and no security update
+# PR is ever proposed. With pnpm 11 the missing credentials also break
+# the lockfile tarball-URL verification
+# (ERR_PNPM_TARBALL_URL_MISMATCH), which aborts the run before any
+# update can be written.
+#
+# scope: "@n3ary" binds only that scope to GitHub Packages; public
+# packages keep resolving from npmjs.
+registries:
+  github-npm:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+    token: ${{secrets.NPM_TOKEN}}
+    scope: "@n3ary"
+
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    registries:
+      - github-npm
 
   - package-ecosystem: github-actions
     directory: /
