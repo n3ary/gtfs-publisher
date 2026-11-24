@@ -19,19 +19,19 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.51",
+    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.52",
     "@n3ary/gtfs-spec": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "archiver": "^8.0.0",
     "csv-parse": "^7.0.1",
-    "node-stream-zip": "^1.15.0"
+    "node-stream-zip": "^1.16.0"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
     "@types/node": "^26.0.0",
-    "typescript": "^6.0.0",
-    "vitest": "^4.1.12"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   },
   "license": "PolyForm-Noncommercial-1.0.0"
 }
