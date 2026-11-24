@@ -16,7 +16,7 @@
     "@fastify/cors": "^10.0.1",
     "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.10",
     "@n3ary/gtfs-spec": "workspace:*",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.8",
     "gtfs-realtime-bindings": "^1.1.1",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
