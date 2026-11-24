@@ -281,4 +281,72 @@ describe('resolve-feeds: end-to-end merge', () => {
     const { resolveFeeds } = await import('../src/resolve-feeds.ts');
     await expect(resolveFeeds()).rejects.toThrow(/orphan override/i);
   });
+
+  it('skips orphan check for adapter-driven feeds (no Transitous match needed)', async () => {
+    // The orphan check is opt-out for adapter-driven feeds.
+    // After the fix, an adapter-driven override whose `enhances`
+    // value doesn't match a Transitous source is fine. This test
+    // verifies that by feeding in a single helsinki config (an
+    // adapter-driven feed) and confirming resolveFeeds does not
+    // throw the orphan error.
+    //
+    // We mock the sync fs reads (resolve-feeds uses readFileSync
+    // + readdirSync, not the async variants) so the test
+    // exercises just the adapter path -- otherwise tursib (no
+    // source.type) trips the orphan check independently and
+    // hides whether the adapter path is being tested.
+    const syntheticFeeds = new Set(['helsinki']);
+    const syntheticConfigs: Record<string, unknown> = {
+      helsinki: {
+        id: 'helsinki',
+        enhances: 'Helsinki',
+        source: {
+          type: 'adapter',
+          publisher: '@n3ary/gtfs-adapter-helsinki',
+        },
+        realtime: {
+          upstream_vehicle_positions:
+            'https://realtime.hsl.fi/realtime/vehicle-positions/v2/hsl',
+        },
+      },
+    };
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn((p: string) => {
+        if (p.includes('countries.json')) {
+          return JSON.stringify({ sources: [] });
+        }
+        const m = String(p).match(/feeds\/([^/]+)\/config\.json$/);
+        if (m && m[1] && syntheticFeeds.has(m[1])) {
+          return JSON.stringify(syntheticConfigs[m[1]);
+        }
+        throw new Error(`unexpected readFileSync: ${p}`);
+      }),
+      readdirSync: vi.fn((p: string) => {
+        if (String(p).endsWith('feeds')) {
+          return [...syntheticFeeds].map((n) => {
+            const entry = { name: n } as { name: string; isDirectory: () => boolean };
+            (entry as unknown as { isDirectory: () => boolean }).isDirectory = () => true;
+            return entry;
+          });
+        }
+        return [];
+      }),
+      existsSync: vi.fn(() => true),
+    }));
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('transitous') && url.endsWith('/ro.json')) {
+        return new Response(JSON.stringify({ sources: [] }));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    vi.resetModules();
+    const { resolveFeeds } = await import('../src/resolve-feeds.ts');
+    // Adapter-driven feeds bypass the Transitous-must-match
+    // check, so this should NOT throw.
+    const feeds = await resolveFeeds();
+    const helsinki = feeds.find((f) => f.id === 'helsinki');
+    expect(helsinki).toBeDefined();
+    expect(helsinki!.source.type).toBe('adapter');
+  });
 });

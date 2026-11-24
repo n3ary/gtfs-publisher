@@ -373,15 +373,23 @@ export async function resolveFeeds(): Promise<Feed[]> {
   }
 
   // Hard error on orphan overrides — every feeds/<id>/config.json
-  // must point at a real Transitous source in the scanned countries.
-  // A non-match means either a typo in `enhances` or a source that
-  // was renamed/removed upstream. Failing the build is better than
-  // silently dropping a feed the operator thinks they configured.
+  // must point at a real Transitous source in the scanned countries,
+  // OR be an adapter-driven feed (which doesn't use Transitous at
+  // all — the adapter IS the upstream). A non-match means either
+  // a typo in `enhances`, a source that was renamed/removed
+  // upstream, or an adapter override where the `enhances` value is
+  // a display label rather than a Transitous source name. Failing
+  // the build is better than silently dropping a feed the
+  // operator thinks they configured.
   const orphans: string[] = [];
   for (const [name, ov] of overrides) {
-    if (!matchedOverrides.has(name)) {
-      orphans.push(`feeds/${ov.dir}/ enhances "${name}" (no Transitous source matched in countries.json)`);
-    }
+    if (matchedOverrides.has(name)) continue;
+    // Adapter-driven feeds aren't expected to match a Transitous
+    // source. The adapter package (e.g. @n3ary/gtfs-adapter-helsinki)
+    // is the upstream; the `enhances` value is a human label, not
+    // a Transitous source id. Skip the orphan check for them.
+    if (ov.cfg.source?.type === 'adapter') continue;
+    orphans.push(`feeds/${ov.dir}/ enhances "${name}" (no Transitous source matched in countries.json)`);
   }
   if (orphans.length > 0) {
     throw new Error(
