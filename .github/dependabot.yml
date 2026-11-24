@@ -11,6 +11,12 @@ version: 2
 #
 # scope: "@n3ary" binds only that scope to GitHub Packages; public
 # packages keep resolving from npmjs.
+#
+# The token must exist in the DEPENDABOT secret store (Settings -> Secrets
+# and variables -> Dependabot), not only in the Actions secret store.
+# All n3ary repos are public, and on a public repo Dependabot gets a
+# read-only GITHUB_TOKEN and no Actions secrets - so without a Dependabot
+# secret every npm update job aborts with "Secret Not Found: NPM_TOKEN".
 registries:
   github-npm:
     type: npm-registry
