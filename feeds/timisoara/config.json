@@ -1,8 +1,0 @@
-{
-  "_comment": "SMTT (Societatea Metropolitana de Transport Timisoara). Source: Transitous resolves mdb-2868 (MobilityDatabase Societatea Metropolitana de Transport Timisoara). The underlying operator is STPT (Societatea de Transport Public Timisoara) -- both names appear in the agency and attribution records. No RT siblings today: feeds.json.realtime will be null until SMTT/STPT publishes GTFS-RT.",
-  "enhances": "Timișoara",
-  "license": {
-    "attribution_text": "SMTT - Societatea Metropolitana de Transport Timisoara",
-    "attribution_url": "https://smtt.ro"
-  }
-}

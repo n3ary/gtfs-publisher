@@ -261,9 +261,11 @@ describe('resolve-feeds: end-to-end merge', () => {
   });
 
   it('throws when a per-feed config enhances a name not in Transitous', async () => {
-    // Only Oradea and Timisoara are covered; Cluj-Napoca and Tursib per-feed
-    // configs (real files on disk) have no Transitous match -- orphan error
-    // lists them alphabetically: cluj-napoca, tursib.
+    // The mocked ro.json lists two Transitous sources that have NO
+    // per-feed config on disk, so they are simply not published. The
+    // real configs on disk are cluj-napoca (adapter-driven, so it is
+    // exempt from the orphan check) and tursib (a plain mirror, so it
+    // IS an orphan here) -- the orphan error is what this asserts.
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('transitous') && url.endsWith('/ro.json')) {
