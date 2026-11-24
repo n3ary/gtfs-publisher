@@ -13,21 +13,21 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@fastify/cors": "^10.0.1",
-    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.10",
+    "@fastify/cors": "^11.4.3",
+    "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.52",
     "@n3ary/gtfs-spec": "workspace:*",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.8",
     "gtfs-realtime-bindings": "^1.1.1",
-    "pino": "^9.4.0",
-    "pino-pretty": "^11.2.2",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
     "protobufjs": "^7.4.0",
     "zod": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.12"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   },
   "license": "PolyForm-Noncommercial-1.0.0"
 }
