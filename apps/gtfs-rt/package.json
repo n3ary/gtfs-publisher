@@ -17,7 +17,7 @@
     "@n3ary/gtfs-adapter-cluj-napoca": "^0.3.52",
     "@n3ary/gtfs-spec": "workspace:*",
     "fastify": "^5.12.8",
-    "gtfs-realtime-bindings": "^1.1.1",
+    "gtfs-realtime-bindings": "^3.0.0",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0",
     "protobufjs": "^7.4.0",
